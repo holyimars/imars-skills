@@ -73,9 +73,12 @@ git clone https://github.com/holyimars/imars-skills && cd imars-skills
 - **官方 README 为 main 分支,可能超前于已发布版本**(实测:main 文档中的 `--raw` flag 在 v0.9.0 上不存在)。任何 CLI 用法以 `cli <tool> --help` 与实际输出为准,不以 main 文档为准;
 - 查询结果的文件字段为 `file_path` 且**无行号字段**(v0.9.0 实测),脚本投影与 Cypher 模板已按此适配(coalesce 兼容);
 - macOS 默认无 `timeout` 命令,hook 已内置 timeout/gtimeout 探测,均无时依赖 settings 层的 hook timeout 兜底;
-- 图谱 Route 节点可能缺类级/router 前缀(上游 open bug),skill 已按"后缀"口径处理;
+- **Java:接口方法与实现类方法是图谱里的两个不同节点,调用边只挂在接口方法上(field-verified,非边缘情况)**。对 `*Impl` 类方法直接查 callers/impact/dead-code 会得到假的 0——包括单实现接口,不需要多实现+`@Primary`才触发。必须同时查接口方法,取并集,详见 `skills/cbm-navigator/references/blindspots.md`;
+- 图谱 Route 节点的类级 `@RequestMapping` 前缀经实测(3 个真实 Controller)**完整保留,未复现前缀丢失**;上游 issue #734 描述的丢失问题仍 open(milestone 0.9.1-rc),不同项目/版本可能表现不同,不要默认套用;
+- **前端:Vue/React 路由懒加载 `() => import('...')` 组件在图谱里没有引用边**(field-verified on plus-ui)——判断路由懒加载组件是否被使用,直接 grep router 配置,不要信图谱的"0 引用";
 - `detect_changes` 在 git worktree 下失效(上游 bug),请在普通 clone 使用;
-- `effort` 为 subagent frontmatter 较新字段,部署前按自测第 7 条验证。
+- `effort` 为 subagent frontmatter 较新字段,部署前按自测第 7 条验证;
+- 引用 GitHub issue 编号前必须实际打开确认——曾核查过的 5 个二手引用编号里有 4 个对不上号(指向无关内容或不存在),只有 1 个精确匹配。
 
 ## License
 

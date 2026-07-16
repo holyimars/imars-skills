@@ -46,13 +46,23 @@ All scripts print compact JSON; never re-run with higher limits — paginate.
   If that agent is unavailable, recommend the user re-run at high effort (/effort) and verify conclusions with native Read/LSP on the key code paths.
 - The graph LOCATES and STRUCTURES; it does not conclude.
   Before stating any business-logic conclusion, read the actual source: `cbm-snippet.sh` for a function, or Read on the file path the graph returned.
-- Route paths from the graph may lack class-level/router prefixes (known upstream bugs).
-  Treat them as suffixes; verify full URLs in source when the exact URL matters.
+- **Java: querying callers/impact/dead-code on an `*Impl` class method (field-verified, MANDATORY, not an edge case)**: the call edge attaches to the INTERFACE method, never the impl method — reproduces on plain single-impl `IFoo`→`FooImpl` pairs, not just multi-impl cases.
+  A "0 callers" result on an impl method proves nothing by itself.
+  ALWAYS also query the interface's copy of the method and take the union before reporting a count, "unused", or "safe to remove".
+  See `references/blindspots.md` for the confirmed repro.
+- Route paths: class-level `@RequestMapping` prefixes were field-verified PRESENT (not dropped) across 3 real controllers on the currently installed version — do not assume prefix-loss by default.
+  Upstream issue #734 (prefix dropped) is real but open/unfixed upstream as of this writing; if a route path looks truncated or wrong, spot-check the one controller in question against source rather than assuming it's systemic.
 - Code changed after the last sync may be missing: if the user references a change from minutes ago, prefer reading the working tree.
 
 ## Fall back to native grep/glob/read (do NOT use the graph)
-- Framework magic (see references/blindspots.md for how to grep these instead): MyBatis mapper XML / dynamic SQL; Laravel facades, Eloquent magic methods/scopes, Blade logic; Django dynamic URLconf / signals; reflection-driven dispatch.
+- Framework magic (see references/blindspots.md for how to grep these instead): MyBatis mapper XML / dynamic SQL; Laravel facades, Eloquent magic methods/scopes, Blade logic; Django dynamic URLconf / signals; reflection-driven dispatch; runtime bean-name lookups (`getBean(computedName)`).
+- Vue/React route-level lazy loading (`() => import('...')`): dynamically-imported route components produce NO graph edge (field-verified).
+  Grep the router config directly for "who routes to this component" instead.
 - Comments, docstrings, README semantics; single-file line-level questions.
+
+## Cross-repo questions (frontend + backend split, or any multi-repo project pair)
+- Each repo is indexed as its own independent graph — there is no aggregated multi-root graph.
+  A question spanning both repos (e.g. "which frontend page calls this backend API") needs one graph call per project (pass the right `--name`/project) plus manual correlation of the results; the graph will not join across repos for you.
 
 ## Token discipline
 - Keep default limits (20); paginate with `-o <offset>` when truly needed.

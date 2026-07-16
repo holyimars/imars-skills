@@ -1,5 +1,59 @@
 # Changelog
 
+## 0.0.11 (2026-07-16)
+- Field-verified a full pass of previously-secondhand blind-spot claims against two real indexed
+  repos (RuoYi-Vue-Plus backend, plus-ui frontend), triggered by a review of an external chat log
+  making limitation claims about codebase-memory-mcp. Verified each claim directly rather than
+  trusting the log; results below.
+- **Major finding (references/blindspots.md, SKILL.md quality rules — MANDATORY protocol, not an
+  edge case)**: Java interface method calls attach their CALLS edge to the interface method node,
+  never the implementation method node — reproduced on plain single-impl `IFoo`→`FooImpl` pairs
+  (`ISysDeptService`/`SysDeptServiceImpl`, `ISysUserService`/`SysUserServiceImpl`), not just
+  multi-impl+`@Primary` cases as previously assumed. Direct A/B trace: interface method returns
+  real callers, the exact same logical method queried via the impl class returns 0, silently, no
+  error. This is the single most common pattern in a layered Spring codebase, so it is now
+  documented as a mandatory cross-check (query both interface and impl method, union the results)
+  rather than a soft "may undercount" note. Confirmed the underlying query-side fix is impossible
+  with this CLI's Cypher engine (`unsupported EXISTS pattern — only the single-hop form supported`,
+  tested directly) — this must be handled by protocol, not by a smarter query.
+- **Fixed a real bug in our own `cbm-cypher.sh`**: the `dead-code` template only ever matched the
+  `Function` label (449 nodes) and completely skipped `Method` (2163 nodes — i.e. almost every Java
+  class method, including every Controller and ServiceImpl method). Added a separate
+  `dead-code-methods` subcommand that queries `Method`, with a mandatory stderr warning that
+  results for interface-implementing classes are unreliable per the finding above (verified: without
+  the warning, running it directly flags `SysMenuController.list/add/edit/remove` and multiple real
+  `*ServiceImpl` methods as "dead code" — all false positives, all actively called through their
+  interface). Kept the original `dead-code` template unchanged for backward compatibility.
+- **Route prefix claim (upstream issue #734) re-tested and NOT reproduced**: class-level
+  `@RequestMapping` prefixes were field-verified fully intact across 3 real controllers with nested
+  paths and inter-controller path sharing (`SysUserController`/`SysProfileController` both under
+  `/system/user`). SKILL.md's blanket "route paths may lack prefixes" warning was overstated —
+  updated to state the verified-present result while still noting #734 is genuinely open upstream
+  (milestone 0.9.1-rc), so this can vary by project/version.
+- **New blind spot found (not previously documented)**: JS/TS dynamic `() => import('...')` route
+  lazy-loading (the standard Vue Router / React Router code-splitting pattern) produces NO graph
+  edge — verified on plus-ui's `src/router/index.ts`, which dynamically imports 4+ page components
+  and shows exactly one `IMPORTS` edge total (the one static import). Added to blindspots.md with a
+  grep-the-router-config fallback.
+- **New blind spot found**: Spring runtime bean-name lookup (`SpringUtils.getBean(computedName)`,
+  e.g. RuoYi-Vue-Plus's `IAuthStrategy` 5-way strategy pattern) is genuinely undecidable statically,
+  not a graph gap — documented as its own category with a grep-the-bean-name-pattern fallback.
+- **MyBatis XML blind spot**: confirmed as a valid structural inference in general, but this specific
+  repo (RuoYi-Vue-Plus) has zero hand-written dynamic SQL — every `*Mapper.xml` is an empty
+  namespace shell for MyBatis-Plus auto-registration. Documented that pure MyBatis-Plus repos don't
+  actually trigger this blind spot; grep `<if\|<foreach` first before treating it as live.
+- **Cross-repo (frontend+backend) analysis**: confirmed the current one-project-per-repo setup
+  (verified via `list_projects`: `plus-ui` and `RuoYi-Vue-Plus` are fully independent graphs) is a
+  working, deliberate design, not a gap blocking anything — documented that a question spanning both
+  repos needs two separate graph calls plus manual correlation, since there's no aggregated
+  multi-root graph.
+- **Methodology correction**: an earlier research pass cited 5 GitHub issue numbers for
+  codebase-memory-mcp limitations (#281, #500, #734, #1033, #1187). Checked all 5 directly: only
+  **#734** actually matched its claimed subject (open, milestone 0.9.1-rc). #281 and #1033 pointed
+  at unrelated PRs, #500 was an unrelated closed feature request, and #1187 doesn't exist (404).
+  Added a standing rule to blindspots.md: never carry forward an issue-sourced claim without opening
+  the issue and confirming it says what's claimed.
+
 ## 0.0.10 (2026-07-16)
 - Fix uninstall.sh (field-verified, hit in practice while switching a real
   install from script mode to `/plugin` mode): it unconditionally deleted
