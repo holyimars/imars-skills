@@ -29,13 +29,13 @@
 
 **方式 A:Claude Code plugin(推荐,自动获得更新)**
 ```
-/plugin marketplace add <你的GitHub用户名>/cbm-navigator
-/plugin install cbm-navigator@cbm-tools
+/plugin marketplace add holyimars/imars-skills
+/plugin install imars-skills@imars-skills
 ```
 
 **方式 B:脚本安装(拷贝到 ~/.claude/)**
 ```bash
-git clone https://github.com/<你的GitHub用户名>/cbm-navigator && cd cbm-navigator
+git clone https://github.com/holyimars/imars-skills && cd imars-skills
 ./install.sh              # 或 ./install.sh --with-hook
 ```
 
