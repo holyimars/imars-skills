@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.7 (2026-07-16)
+- Fix project-name resolution collision (field-verified): the fuzzy
+  `endswith(basename)` fallback in `_project.sh` and the optional hook could
+  outrank an exact basename match when an unrelated indexed project happened
+  to end with the same basename (e.g. a stale benchmark clone named
+  "...-RuoYi-Vue-Plus" silently outranked the real "RuoYi-Vue-Plus" project,
+  so every graph query silently answered from the wrong repo). Both scripts
+  now try an exact match against the plain basename (the documented `--name`
+  override) before falling back to the suffix heuristic, and `_project.sh`
+  prints a `warning:` to stderr when the fallback itself is still ambiguous
+  (multiple indexed projects share the suffix) instead of silently picking
+  one.
+
 ## 0.1.6 (2026-07-16)
 - Fix cbm-grep.sh (field-verified): search_code requires `pattern`, not
   `query` — the old name failed every call with "pattern is required".

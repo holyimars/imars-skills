@@ -25,19 +25,34 @@ if [ -f "$CACHE" ]; then PROJECT=$(cat "$CACHE"); else
   # (leading separator dropped, separators -> hyphens), e.g.
   # /Users/me/www/my-service -> Users-me-www-my-service
   FLAT=$(printf '%s' "$ROOT" | sed 's|^[/\\]||; s|[/\\]|-|g')
-  PROJECT=$(cbm_call list_projects | jq -r --arg flat "$FLAT" --arg base "$BASE" '
+  LISTING=$(cbm_call list_projects)
+  # Exact tiers (flattened path, then the plain basename used by the
+  # documented --name override) must win over the fuzzy suffix fallback:
+  # field-verified collision where a stale, unrelated indexed project
+  # happened to end with the same basename (e.g. a benchmark clone named
+  # "...-RuoYi-Vue-Plus") silently outranked the real "RuoYi-Vue-Plus"
+  # project via endswith() and every query answered from the wrong graph.
+  RESOLVED=$(echo "$LISTING" | jq -r --arg flat "$FLAT" --arg base "$BASE" '
     [.projects[]?.name // empty] as $n
     | ( [$n[] | select(. == $flat)]
       + [$n[] | select(ascii_downcase == ($flat|ascii_downcase))]
-      + [$n[] | select(endswith($base))]
-      + [$n[] | select(ascii_downcase | endswith($base|ascii_downcase))] )
-    | first // empty')
+      + [$n[] | select(. == $base)]
+      + [$n[] | select(ascii_downcase == ($base|ascii_downcase))] ) as $exact
+    | ( [$n[] | select(endswith($base))]
+      + [$n[] | select(ascii_downcase | endswith($base|ascii_downcase))] ) as $fuzzy
+    | { project: ($exact[0] // $fuzzy[0] // ""),
+        ambiguous: (($exact | length) == 0 and (($fuzzy | unique | length) > 1)) }
+    | @json')
+  PROJECT=$(echo "$RESOLVED" | jq -r '.project')
+  if [ "$(echo "$RESOLVED" | jq -r '.ambiguous')" = "true" ]; then
+    echo "warning: '$PROJECT' picked by ambiguous suffix match — multiple indexed projects end with '$BASE'; run 'codebase-memory-mcp cli list_projects' and delete stale/duplicate indexes, or re-index this repo with a more specific --name" >&2
+  fi
   if [ -z "$PROJECT" ]; then
     echo "{\"error\":\"repo not indexed\",\"hint\":\"run: codebase-memory-mcp cli index_repository --repo-path '$ROOT' --name '$BASE' --persistence true — or fall back to native grep\"}" >&2
     exit 2
   fi
   # Soft gate (first resolution only): tiny project -> remind the skill's gate rule
-  NODES=$(cbm_call list_projects | jq -r --arg n "$PROJECT" \
+  NODES=$(echo "$LISTING" | jq -r --arg n "$PROJECT" \
     '.projects[]? | select(.name==$n) | (.nodes // .node_count // empty)' 2>/dev/null || true)
   if [ -n "${NODES:-}" ] && [ "$NODES" -lt 500 ] 2>/dev/null; then
     echo "warning: '$PROJECT' has only $NODES graph nodes (likely <1k LOC) — per skill gate, prefer native grep/read" >&2

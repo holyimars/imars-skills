@@ -14,7 +14,11 @@ TMO=""
 command -v timeout  >/dev/null 2>&1 && TMO="timeout 2"
 command -v gtimeout >/dev/null 2>&1 && TMO="gtimeout 2"
 PROJECT=$($TMO codebase-memory-mcp cli list_projects 2>/dev/null \
-  | jq -r --arg f "$FLAT" --arg b "$BASE" '[.projects[]?.name // empty] | (map(select(.==$f)) + map(select(endswith($b)))) | first // empty' 2>/dev/null) || exit 0
+  | jq -r --arg f "$FLAT" --arg b "$BASE" '
+      [.projects[]?.name // empty] as $n
+      | ( ([$n[] | select(.==$f)] + [$n[] | select(.==$b)])[0]
+        // ([$n[] | select(endswith($b))] | first)
+        // empty )' 2>/dev/null) || exit 0
 [ -z "$PROJECT" ] && exit 0
 MATCH=$(jq -n --arg p "$PROJECT" --arg q "$PATTERN" '{project:$p, name_pattern:$q, limit:5}' \
   | $TMO codebase-memory-mcp cli search_graph 2>/dev/null \
