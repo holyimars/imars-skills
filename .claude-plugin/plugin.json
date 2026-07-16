@@ -1,0 +1,9 @@
+{
+  "name": "imars-skills",
+  "version": "0.0.1",
+  "description": "爱码士的 Skill 合集。Imars Skills.",
+  "author": { "name": "IMars" },
+  "repository": "https://github.com/holyimars/imars-skills",
+  "license": "MIT",
+  "keywords": ["code-graph", "codebase-memory", "cli", "skill", "code-intelligence"]
+}

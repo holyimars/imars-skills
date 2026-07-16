@@ -1,0 +1,12 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Grep|Glob",
+        "hooks": [
+          { "type": "command", "command": "~/.claude/hooks/cbm-augment.sh", "timeout": 3 }
+        ]
+      }
+    ]
+  }
+}

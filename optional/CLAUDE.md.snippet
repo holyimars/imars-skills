@@ -1,0 +1,6 @@
+## Code discovery policy
+This repo has a pre-built code knowledge graph (codebase-memory, CLI-only, no MCP).
+Project name in the graph: `<PROJECT_NAME>`
+For STRUCTURAL questions — where is X defined, who calls X, call chains, change impact / blast radius, architecture overview, dead code, cross-layer violations, "which module handles <business term>" — invoke the `cbm-navigator` skill FIRST.
+Do not run multi-round Grep/Read exploration for questions the graph answers in one call.
+Fall back to native grep/read only for: framework magic (MyBatis XML, Eloquent/facades, Blade logic, Django URLconf), comments/docs, single-file line-level questions, or code changed after the last index sync.

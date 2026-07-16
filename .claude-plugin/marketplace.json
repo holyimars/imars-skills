@@ -1,0 +1,11 @@
+{
+  "name": "imars-skills",
+  "owner": { "name": "IMars" },
+  "plugins": [
+    {
+      "name": "imars-skills",
+      "source": "./",
+      "description": "爱码士的 Skill 合集。Imars Skills."
+    }
+  ]
+}
