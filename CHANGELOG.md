@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.0.10 (2026-07-16)
+- Fix uninstall.sh (field-verified, hit in practice while switching a real
+  install from script mode to `/plugin` mode): it unconditionally deleted
+  `~/.claude/hooks/cbm-augment.sh`, even though the hook is wired via a
+  manual `settings.json` entry that is independent of which install method
+  (script or `/plugin`) delivers the skill/agent. Running the old
+  uninstall.sh to clean up a superseded script install silently broke an
+  already-configured hook, leaving settings.json pointing at a deleted
+  file. Uninstall now mirrors install.sh's own `--with-hook` flag: the hook
+  script is left in place by default and only removed when `--with-hook`
+  is passed. Output also now clarifies that this script never touches a
+  `/plugin`-managed install (use `claude plugin uninstall` for that).
+
 ## 0.0.9 (2026-07-16)
 - Repo housekeeping (file organization review): renumbered the 0.1.x-era
   entries below (0.1.0-0.1.6) to a consistent 0.0.x sequence matching
