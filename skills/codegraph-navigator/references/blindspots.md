@@ -44,6 +44,25 @@ Use the native fallback instead; do not report graph emptiness here as "no usage
   The XML-file-has-0-symbols result is still a direct, positive confirmation that codegraph does not model the namespace binding at all, regardless of SQL content.
 - Fallback: identical to cbm-navigator's — grep the mapper interface FQN as XML `namespace=`, then Read the mapper XML directly.
 
+## `cg-explore.sh` on whole-graph aggregate questions — silently answers a DIFFERENT question (field-verified 2026-07-17)
+
+- Ran three real `codegraph explore` calls on RuoYi-Vue-Plus, the exact aggregate-question shapes the earlier version of this file suggested as an `explore` fallback:
+  - `explore "find methods that are never called from anywhere in the codebase (dead code)"` → returned `findFirst`/`findAny`/`findCode`/`find` (StreamUtils, DataBaseType, DataScopeType) — every one of them has 1-2 REAL callers shown in the response's own "Blast radius" section. `explore` matched the word "find" in the query against method names starting with "find"; it did not compute call-degree-zero at all.
+  - `explore "which classes have the most callers, the biggest hub/god classes"` → returned `scanEncryptClasses` (1 caller) and a YAML config field `host` (1 caller) — the opposite of "most callers".
+  - `explore "list all the API routes/endpoints defined by REST controllers"` → returned 26 controller methods literally named `list` (because "list" is in both the query and their names) plus a note about runtime dispatch to `BaseController` implementations. Zero `/api/...` paths appeared anywhere in the response.
+- Root cause: `explore` (like `query`) is a text/embedding similarity search over symbol names and source, then it computes blast-radius/call-paths for whatever it retrieved. It has no notion of "zero incoming edges", "sort by degree", or "node kind == route" — there is no aggregate/analytic mode at all, confirmed by `codegraph --help` (`explore`, `node`, `query`, `callers/callees/impact`, `affected` — no `stats`/`hubs`/`unused` command exists).
+- The dangerous part is not that it's blind — codebase-memory-mcp is equally blind to some things — it's that the response is formatted with the same confidence markers (⚠️ "no covering tests", numbered "Blast radius" caller counts, a "Relationships" section) whether or not the retrieved symbols have anything to do with the question. Nothing in the output signals "these symbols were chosen by keyword coincidence."
+- Fix shipped: `SKILL.md`'s decision table now explicitly routes whole-graph aggregate questions away from `cg-explore.sh`. Dead-code/hubs/cross-layer remain genuine capability gaps for codegraph (fall back to `cbm-cypher.sh` or grep); routes turned out to have a real, accurate equivalent — see next section.
+
+## `cg-find.sh -k <kind>` with an empty pattern = accurate exhaustive listing (field-verified 2026-07-17) — routes is NOT actually a gap
+
+- `codegraph query '' -k route -j -l 500` on RuoYi-Vue-Plus returned exactly 303 results — an EXACT match against `codegraph status -j`'s `nodesByKind.route` (303). Same exact-match verification repeated for `-k class` (482/482). On plus-ui (TS/Vue), `-k component` correctly enumerated all 99 Vue components (matches `nodesByKind.component`).
+- Each route result includes the real HTTP verb and full path as its `name`, e.g. `"DELETE /auth/unlock/{socialId}"` — arguably more precise than `cbm-cypher.sh routes`, whose Cypher template only returns the path (verb not modeled in that graph schema).
+- This means the original "(no direct equivalent)" verdict for "routes list" in `SKILL.md` was wrong — corrected. Dead-code and hubs are still genuine gaps (no node property encodes call-degree or callers-count for a direct filter/sort).
+- Two bugs found and fixed while confirming this:
+  1. `cg-find.sh -k route` (pattern omitted entirely, the natural way to ask "list all routes") crashed with `line 6: $1: unbound variable` — `set -u` treats a missing positional param as unbound, and the script assumed a pattern was always given. Fixed: `Q="${1:-}"`.
+  2. Once that crash was fixed, the *default* limit (20) silently under-returned: with an EMPTY pattern, codegraph's own `-l` behaves like a per-file/group multiplier, not a literal cap — `-l 1` returned 5 rows, `-l 3` returned 15, `-l 5` returned 25 (a consistent ~5x on this repo; the exact ratio is not something to depend on). `cg-find.sh` now defaults `-l` to 500 specifically when the pattern is empty (kept at 20 for normal fuzzy search), so "list all X" actually returns everything by default. With a non-empty pattern `-l` was confirmed to behave as a normal literal cap (`-l 3` on `"system"` → exactly 3 rows) — the quirk is specific to the empty-pattern case.
+
 ## Not tested / out of scope for this pass
 
 - Laravel/Django/PHP/Python-specific magic (Facades, Eloquent, URLconf, signals): not re-tested against codegraph in this pass; codegraph's own README claims "limited static analysis for dynamic dispatch and reflection" in general, treat these as unverified-until-spot-checked, same standing rule as cbm-navigator's blindspots.md.

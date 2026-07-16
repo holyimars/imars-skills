@@ -129,7 +129,8 @@ git clone https://github.com/holyimars/imars-skills && cd imars-skills
 - Java 接口/实现盲区**明显好于** cbm-navigator:`node`/`explore` 会给出 `[dynamic: interface → impl]` 双向标注,`cg-trace.sh` 已内置自动桥接;但底层 `callers` 命令本身仍是单跳,查 `*Impl` 类方法只会返回 1 个"caller"——那其实是接口声明本身,不是真实调用方,必须靠 `cg-trace.sh`/`cg-node.sh`/`cg-explore.sh` 而非裸 CLI 调用;
 - Vue/React 动态 `() => import('...')` 路由懒加载、MyBatis XML mapper 绑定:**跟 codebase-memory-mcp 一样是盲区**,graph 完全无感知,直接 grep/read;
 - Spring `getBean(运行时拼接名)` 场景:codegraph 会把接口的全部实现类都列成 dynamic dispatch 候选——诚实但不精确(不代表"全部被调用"或"就是这一个"),仍需 grep bean 名拼接逻辑;
-- 没有裸图查询能力(无 Cypher 等价物),死代码/hubs/routes 这类全图模式问题只能靠 `cg-explore.sh` 问自然语言,或改用 cbm-navigator;
+- 没有裸图查询能力(无 Cypher 等价物),死代码/hubs 这类全图模式问题**明确不要用 `cg-explore.sh` 兜底**——实测(2026-07-17)它对这类问题做的是关键词/语义检索而非图分析,会把问题里的词(如"find"/"list")匹配到同名符号上,再套用跟正常答案一模一样的"Blast radius"格式自信地给出**看似合理实则文不对题**的结果,不是"答不出来"而是"答错了还不报错";这两类问题改用 cbm-navigator;
+- "列出所有 routes/classes/interfaces/components" 这类**穷举**(而非模糊搜索)反而有直接等价物:`cg-find.sh -k route\|class\|interface\|component`(pattern 留空)——实测数量与 `codegraph status` 的 `nodesByKind` 完全一致(303/303 routes、482/482 classes、99/99 components),比 cbm-cypher.sh 的 routes 模板还多带 HTTP 方法;
 - `codegraph install` 会写 MCP 配置,本套件明确不使用它。
 
 ## 工具选型对比(实测,2026-07-16,v1.4.1 vs codebase-memory-mcp v0.9.0)
@@ -142,11 +143,12 @@ git clone https://github.com/holyimars/imars-skills && cd imars-skills
 | Vue Router `() => import()` 懒加载 | 完全无边 | 完全一样,同样无边 |
 | Spring `getBean(运行时拼接名)` | 完全无法解析 | 用接口/实现启发式把全部候选实现列为 dynamic dispatch——不精确但诚实可用 |
 | MyBatis XML mapper 绑定 | 完全无法解析 | 完全一样,XML 建了文件节点但 0 symbols,零绑定 |
-| 死代码/hubs/routes 全图模式查询 | 有专门的 Cypher 模板(`cbm-cypher.sh`) | 无裸图查询能力,只能靠自然语言 `explore` |
-| 改动关联的测试文件 | 无此能力 | `codegraph affected` 原生支持 |
+| 死代码/hubs 全图模式查询 | 有专门的 Cypher 模板(`cbm-cypher.sh`) | **无等价物,且 `cg-explore.sh` 会文不对题地"答出来"**——关键词匹配到同名符号后套用正常回答的格式,不报错也不提示这是错的,比"查不到"更危险 |
+| routes 全量列表 | 有专门的 Cypher 模板(`cbm-cypher.sh routes`),只含 path | 实测有直接等价物:`cg-find.sh -k route`(pattern 留空)穷举,数量与 `codegraph status` 精确对上,`name` 字段还带 HTTP 方法 |
+| 改动关联的测试文件 | 无此能力 | `codegraph affected` 原生支持,返回值含 `totalDependentsTraversed` 可作为"确实没有覆盖测试"结论的可信度信号 |
 | 索引速度(RuoYi-Vue-Plus,709 文件) | 未记录精确耗时 | 2.4 秒,16497 节点/28199 边 |
 
-结论:两个工具没有绝对的谁更好,互补大于替代——单符号溯源(调用链/影响面)优先 codegraph,全图模式扫描(死代码/hubs)优先 codebase-memory-mcp。
+结论:两个工具没有绝对的谁更好,互补大于替代——单符号溯源(调用链/影响面)、routes 全量列表优先 codegraph;死代码/hubs 全图模式扫描优先 codebase-memory-mcp,且这两类问题**不要**用 `cg-explore.sh` 兜底(实测会答错而非答不出来)。
 
 ## License
 

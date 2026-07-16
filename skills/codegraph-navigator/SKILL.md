@@ -15,7 +15,8 @@ description: >
    Under ~1,000 lines of code (`codegraph status` shows `nodeCount` in the low hundreds) — native grep/read is just as accurate and faster.
 3. **Both `.codegraph/` and `.codebase-memory/` present in the same repo?**
    Field-verified division of labor: for single-symbol questions (who calls X, show me X, what breaks if I change X) prefer codegraph — its `explore`/`node` commands surface the Java interface/impl cross-reference automatically (see Quality rules below), which cbm-navigator cannot do without a manual mandatory cross-check.
-   For whole-graph pattern questions (dead code, god classes, cross-layer violation sweeps) prefer cbm-navigator — codegraph has no raw graph-query equivalent, only natural-language `explore`.
+   For whole-graph AGGREGATE/ANALYTIC questions (dead code, god classes/hubs, cross-layer violation sweeps) prefer cbm-navigator's `cbm-cypher.sh` — codegraph has no raw graph-query equivalent and, field-verified, its `explore` command produces confidently-wrong answers for these three shapes (see Quality rules below), it is not just weaker.
+   Exception: "list all routes" — codegraph DOES have a direct, verified-accurate equivalent (`cg-find.sh -k route`, see Decision table), prefer that over cbm-cypher.sh's `routes` template when both are available (codegraph's route names include the HTTP verb).
    If the user names a tool explicitly, use that one.
 4. **Effort awareness (team-measured fact, same as cbm-navigator).**
    Retrieval quality is capped by the reasoning/output token budget: at low/medium effort, accuracy is LOWER than at high/xhigh/max.
@@ -31,13 +32,14 @@ Scripts print compact JSON (except `cg-node.sh`/`cg-explore.sh`, which print cod
 | Question shape | Script | Notes |
 |---|---|---|
 | "Where is X / list all X" | `scripts/cg-find.sh 'X'` | fuzzy text match; add `-k function\|class\|method\|interface\|component\|route` to filter kind |
+| "List ALL routes/classes/interfaces/components" (exhaustive, not fuzzy) | `scripts/cg-find.sh -k route\|class\|interface\|component` (omit the pattern) | field-verified EXACT: an empty pattern + `-k` enumerates every symbol of that kind — count matched `codegraph status`'s `nodesByKind.<kind>` precisely (303/303 routes, 482/482 classes). This is the accurate way to answer "list all X of kind Y" — do NOT use `cg-explore.sh` for this, see below |
 | "Who calls X / what does X call" | `scripts/cg-trace.sh <exact-symbol> [in\|out\|both]` | needs EXACT name → run cg-find.sh first if unsure; prefer `qualified_name` over bare `name` (bare method names can fuzzy-match unrelated symbols); auto-bridges the Java interface/impl gap on `in` regardless of which of the two you pass, see Quality rules |
 | "What breaks if I change X" (blast radius) | `scripts/cg-impact.sh <exact-symbol> [depth]` | multi-hop by default (depth 2), already bridges interface/impl on its own |
 | "Show me X (source + who calls/what it calls)" | `scripts/cg-node.sh <exact-symbol>` or `-f <file>` | one call, cheaper than Read on the whole file; look for `[dynamic: interface → impl]` labels on the Trail and follow them |
-| Compound / exploratory question ("how does X reach Y", "why does Z happen") | `scripts/cg-explore.sh "<question...>"` | **flagship tool** — one call returns relevant symbols' source + call paths + blast radius, including interface/impl synthesis; prefer this over chaining find→trace→node for anything non-trivial |
-| "Architecture / file structure / how big is this repo" | `scripts/cg-arch.sh [max-depth]` | merges index stats + file tree; tree truncated to 60 entries by default |
-| "Which tests cover this change" | `scripts/cg-affected.sh [files...]` | no args → uses uncommitted git diff; capability codebase-memory-mcp does not have |
-| whole-graph patterns: dead code, hubs, routes list | *(no direct equivalent)* | try `cg-explore.sh` with a natural-language question, or fall back to `cbm-cypher.sh` if this repo is also indexed by codebase-memory-mcp |
+| Compound / exploratory SINGLE-AREA question ("how does X reach Y", "why does Z happen") | `scripts/cg-explore.sh "<question...>"` | **flagship tool for this shape only** — one call returns relevant symbols' source + call paths + blast radius, including interface/impl synthesis; prefer this over chaining find→trace→node for anything non-trivial. Do NOT use for whole-graph aggregate questions, see the row below |
+| "Architecture / file structure / how big is this repo" | `scripts/cg-arch.sh [max-depth]` | merges index stats + file tree; tree truncated to 60 entries by default; `nodesByKind` in the output tells you which `-k` filters are worth trying on `cg-find.sh` |
+| "Which tests cover this change" | `scripts/cg-affected.sh [files...]` | no args → uses uncommitted git diff; capability codebase-memory-mcp does not have; `totalDependentsTraversed` in the output is a transparency count — trust the "no covering tests" hint more when that number is high |
+| whole-graph AGGREGATE patterns: dead code, hubs/god-classes, cross-layer violations | *(no equivalent — do NOT use `cg-explore.sh`)* | field-verified (2026-07-17): asked to find dead code / hubs, `explore` does keyword-similarity retrieval on the question text and returns symbols that merely share vocabulary with the question (e.g. methods named `find*` for a "dead code" query) — each with real callers, formatted with the same confident "Blast radius" / "⚠️ no covering tests" styling as a correct answer. It does not compute call-degree or reachability. Fall back to `cbm-cypher.sh dead-code\|hubs\|cross-layer` if this repo is also indexed by codebase-memory-mcp, otherwise native grep-based heuristics |
 | literal text / string / SQL fragment | *(no direct equivalent)* | codegraph has no text-search command — use native Grep |
 
 ## Mandatory sequences (accuracy protocol)
@@ -49,6 +51,9 @@ Scripts print compact JSON (except `cg-node.sh`/`cg-explore.sh`, which print cod
    Do not retry the same call unchanged.
 
 ## Quality rules (non-negotiable)
+- **`cg-explore.sh` is a keyword/semantic retrieval tool over symbol names and source text, NOT a graph-analytics engine — field-verified (2026-07-17) to fail silently, not loudly, on aggregate questions.**
+  Asked "find dead code" or "which classes are hubs", it returns symbols whose NAME happens to match the question's vocabulary (e.g. `findFirst`/`findAny` for a "find unused methods" query) — every one of them had real callers, and the response's own "Blast radius" section proved it, but the confident markdown formatting (⚠️ warnings, caller counts) makes a wrong-shaped answer look authoritative. Asked "list all routes" it matched controller methods literally named `list`, never surfacing a single `/api/...` path.
+  Use it ONLY for single-area compound questions (call paths, "how does X reach Y", interface/impl synthesis) — that is genuinely its strength (see below). For "list all X of a kind" use `cg-find.sh -k <kind>` (empty pattern) instead; for dead-code/hubs/cross-layer there is no codegraph substitute, use `cbm-cypher.sh` or grep-based heuristics — see Decision table.
 - **Java interface → implementation calls (field-verified, better than codebase-memory-mcp but still needs care).**
   `cg-node.sh`/`cg-explore.sh` label the cross-reference edge `[dynamic: interface → impl @file:line]` and — for `explore` — already include both sides' blast radius in one response; prefer these two for anything you'll report a conclusion from.
   `cg-trace.sh` auto-bridges the single-hop `callers` gap and marks the result `"bridged": true` when it did — treat that flag as "verify with cg-node.sh/cg-explore.sh before stating a final count," not as a guarantee.
@@ -68,5 +73,5 @@ Scripts print compact JSON (except `cg-node.sh`/`cg-explore.sh`, which print cod
 - Comments, docstrings, README semantics; single-file line-level questions; literal text/SQL fragment search (no equivalent command).
 
 ## Token discipline
-- `cg-explore.sh` defaults to `--max-files 3` (pass `-m N` to raise it); `cg-find.sh` defaults to limit 20; `cg-arch.sh` truncates its file tree to 60 entries.
+- `cg-explore.sh` defaults to `--max-files 3` (pass `-m N` to raise it); `cg-find.sh` defaults to limit 20 for a fuzzy pattern, 500 for an exhaustive `-k <kind>` listing (empty pattern) — the underlying `codegraph query` CLI does not treat `-l` as a literal cap when the pattern is empty (field-verified: `-l 1/3/5` returned ~5x that many rows), so don't lower this default when doing a "list all" call; `cg-arch.sh` truncates its file tree to 60 entries.
 - Summarize graph output in prose; never paste raw tool output to the user.
