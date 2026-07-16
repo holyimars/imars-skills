@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.7 (2026-07-16)
+## 0.0.2 (2026-07-16)
 - Fix project-name resolution collision (field-verified): the fuzzy
   `endswith(basename)` fallback in `_project.sh` and the optional hook could
   outrank an exact basename match when an unrelated indexed project happened
