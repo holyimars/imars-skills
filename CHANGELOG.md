@@ -1,5 +1,75 @@
 # Changelog
 
+## 0.0.12 (2026-07-16)
+- **New: `codegraph-navigator` skill + `codegraph-deep-analyst` subagent** — a second, fully
+  independent integration parallel to `cbm-navigator`, wrapping the competing
+  [colbymchenry/codegraph](https://github.com/colbymchenry/codegraph) CLI (v1.4.1, installed via
+  `npm i -g @colbymchenry/codegraph`, never `codegraph install` — that subcommand writes MCP config
+  and was deliberately never run). Triggered by a head-to-head field verification against the same
+  two repos (RuoYi-Vue-Plus, plus-ui) already used to verify codebase-memory-mcp's blind spots.
+- **Verified comparison (see `skills/codegraph-navigator/references/blindspots.md` for full
+  evidence)**: codegraph's graph carries an actual interface→impl edge, surfaced by `node`/`explore`
+  as `[dynamic: interface → impl @file:line]` labels — `explore` in particular returns both the
+  interface's real callers AND the impl's blast radius in one call, something cbm-navigator cannot
+  do without a manual mandatory cross-check. The underlying `callers` command is still single-hop
+  though: querying an `*Impl` method returns exactly one "caller" that is actually the interface's
+  own declaration line, not a real business caller — easy to misread if you skip the labeled tools.
+  Dynamic `() => import('...')` route lazy-loading and MyBatis XML mapper `namespace=` binding
+  reproduce as blind spots on codegraph IDENTICALLY to codebase-memory-mcp — neither tool models
+  these. Spring runtime `getBean(computedName)` strategy dispatch: codegraph fans out to ALL
+  implementing classes as dynamic-dispatch candidates (honest but imprecise — it doesn't know it's
+  a runtime string selection, it just reuses the same interface/impl heuristic).
+- **`cg-trace.sh` auto-bridges the single-hop `callers` gap** (a capability codebase-memory-mcp's
+  Cypher engine cannot support — confirmed in 0.0.11 that its nested-EXISTS query is rejected
+  outright): when a direct `callers` result contains an entry whose name matches the queried
+  method's own short name (the fingerprint of an interface-declaration bridge hop), the script
+  re-resolves that entry to an exact `qualifiedName` via `codegraph query`, re-queries its callers,
+  and unions the results with a `bridged: true` flag. Field-verified on two independent
+  interface/impl pairs (`ISysDeptService`/`SysDeptServiceImpl`, `ISysUserService`/
+  `SysUserServiceImpl`) and confirmed to correctly NOT trigger when querying the interface side
+  directly (which already has real callers).
+- **Fixed a bug found while building `cg-arch.sh`**: merging `codegraph status -j` and `codegraph
+  files -j --max-depth N` via jq `--argjson` crashed with "Argument list too long" on a 709-file
+  repo (125KB of JSON exceeds this environment's shell argv limit) — switched to writing both to
+  temp files and reading via `--slurpfile`, and capped the returned file tree to 60 entries with a
+  `treeTruncated` flag (token-discipline parity with cbm-navigator's existing result-limit rules).
+- New scripts (`skills/codegraph-navigator/scripts/`): `_gate.sh` (hard-stops if `.codegraph/` is
+  missing, warns on tiny repos and stale index via `pendingChanges`), `cg-find.sh`, `cg-trace.sh`,
+  `cg-impact.sh`, `cg-node.sh`, `cg-explore.sh` (the flagship one-shot tool), `cg-arch.sh`,
+  `cg-affected.sh` (wraps `codegraph affected` — a capability codebase-memory-mcp does not have:
+  changed source files → the test files that cover them).
+- `install.sh`/`uninstall.sh` now install/remove both skill+agent pairs; the previous hard
+  `command -v codebase-memory-mcp || exit 1` check is now a soft per-CLI warning (for
+  `codebase-memory-mcp` and `codegraph` independently) since a user may reasonably want only one of
+  the two integrations — `jq` remains a hard requirement for both.
+- README restructured around the two independent integrations (shared intro/component table, then
+  cbm-navigator-specific and codegraph-navigator-specific prerequisites/self-test/known-boundaries
+  sections), plus a new head-to-head "工具选型对比" table summarizing the verified findings above.
+- **Code-review fixes to the codegraph-navigator scripts above (found via `/code-review-expert`,
+  reproduced against the live `.codegraph/` indices, fixed before this release ever shipped):**
+  - `codegraph callers/callees/impact` report "symbol not found" via **exit code 0** plus a
+    non-JSON, ANSI-colored message on **stdout** (not stderr) — the opposite of what
+    `2>/dev/null || echo '<fallback>'` guards against. `cg-trace.sh`/`cg-impact.sh` were piping that
+    raw text straight into `jq`, crashing with `jq: parse error: Invalid numeric literal` instead of
+    returning the documented `hint` field, on the single most-anticipated failure mode (a mistyped
+    exact symbol name). Fixed by adding a shared `cg_call()` helper in `_gate.sh` that validates
+    stdout with `jq empty` (not a `{`/`[` prefix check — codegraph's own message text starts with a
+    literal `[i]` icon that would false-positive that check) and synthesizes a structured
+    `{"error", "exitCode"}` object on failure; adopted by `cg-find.sh`, `cg-trace.sh`,
+    `cg-impact.sh`, and `cg-arch.sh`'s two subcalls.
+  - `cg-trace.sh`'s auto-bridge (see above) silently failed to trigger — with `bridged: false` and
+    `hint: null`, i.e. no warning at all — when given the exact `qualified_name` that `cg-find.sh`
+    itself recommends copying, because its short-name extraction (`${NAME##*.}`) split on the last
+    `.` and landed inside the package prefix instead of at the `::` qualifiedName separator. This
+    reproduced the exact interface/impl blind spot the whole skill exists to fix, on the documented
+    happy path. Fixed to split on `::` first when present, falling back to `.` only for the plain
+    `ClassName.methodName` shorthand; re-verified both formats now bridge identically on both
+    field-tested pairs.
+  - See `skills/codegraph-navigator/references/blindspots.md`'s "Code-review note (2026-07-17)" for
+    the full repro.
+- `cbm-navigator`'s own SKILL.md/scripts/blindspots.md were NOT modified in this release — this is
+  purely additive.
+
 ## 0.0.11 (2026-07-16)
 - Field-verified a full pass of previously-secondhand blind-spot claims against two real indexed
   repos (RuoYi-Vue-Plus backend, plus-ui frontend), triggered by a review of an external chat log

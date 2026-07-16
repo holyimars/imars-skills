@@ -1,0 +1,5 @@
+## Code discovery policy (codegraph)
+This repo has a pre-built code index (codegraph, CLI-only, no MCP — `.codegraph/` at the repo root).
+For STRUCTURAL questions — where is X defined, who calls X, call chains, change impact / blast radius, architecture overview, which tests cover a change, "which module handles <business term>" — invoke the `codegraph-navigator` skill FIRST.
+Do not run multi-round Grep/Read exploration for questions the index answers in one call; prefer `cg-explore.sh` for compound questions.
+Fall back to native grep/read only for: MyBatis XML mapper binding, Vue/React dynamic `import()` route lazy-loading, other framework magic, comments/docs, single-file line-level questions, or code changed after the last `codegraph sync`.
