@@ -14,9 +14,11 @@ description: >
 2. **Tiny repo? Skip this skill entirely.**
    Under ~1,000 lines of code (`codegraph status` shows `nodeCount` in the low hundreds) — native grep/read is just as accurate and faster.
 3. **Both `.codegraph/` and `.codebase-memory/` present in the same repo?**
-   Field-verified division of labor: for single-symbol questions (who calls X, show me X, what breaks if I change X) prefer codegraph — its `explore`/`node` commands surface the Java interface/impl cross-reference automatically (see Quality rules below), which cbm-navigator cannot do without a manual mandatory cross-check.
+   Priority order for picking between the two tools: **accuracy first, then tokens, then speed** — never pick by habit.
+   Field-verified division of labor: for single-symbol questions (who calls X, show me X, what breaks if I change X) prefer codegraph — its `explore`/`node` commands surface the Java interface/impl cross-reference automatically in ONE call (see Quality rules below), where cbm-navigator needs a mandatory second call (query the interface method too, take the union) to reach the same accuracy — same ceiling, codegraph gets there cheaper and faster.
    For whole-graph AGGREGATE/ANALYTIC questions (dead code, god classes/hubs, cross-layer violation sweeps) prefer cbm-navigator's `cbm-cypher.sh` — codegraph has no raw graph-query equivalent and, field-verified, its `explore` command produces confidently-wrong answers for these three shapes (see Quality rules below), it is not just weaker.
-   Exception: "list all routes" — codegraph DOES have a direct, verified-accurate equivalent (`cg-find.sh -k route`, see Decision table), prefer that over cbm-cypher.sh's `routes` template when both are available (codegraph's route names include the HTTP verb).
+   cbm's own templates for this were re-verified end-to-end on 2026-07-17 (2 of 5 had real bugs, since fixed — see `cbm-navigator/references/blindspots.md`); `dead-code` there has its own Java-interface caveat, use `dead-code-methods` + the union protocol for Java class methods instead of the plain `dead-code` template.
+   Exception: "list all routes" — codegraph DOES have a direct, verified-accurate equivalent (`cg-find.sh -k route`, see Decision table), prefer that over cbm-cypher.sh's `routes` template when both are available (codegraph's route names include the HTTP verb, and it's a single CLI call vs a Cypher round-trip — cheaper AND faster, not just equally accurate).
    If the user names a tool explicitly, use that one.
 4. **Effort awareness (team-measured fact, same as cbm-navigator).**
    Retrieval quality is capped by the reasoning/output token budget: at low/medium effort, accuracy is LOWER than at high/xhigh/max.

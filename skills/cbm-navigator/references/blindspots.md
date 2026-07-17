@@ -60,6 +60,56 @@ Use the native fallback instead; do not report graph emptiness here as "no usage
 - Consequence: a question spanning both repos (e.g. "which frontend page calls this backend API") requires TWO separate graph calls (one per project, via `--name`/`-p` project targeting) plus manual correlation of the Vue API-call string against the backend `Route` node path.
   The graph will not do this join for you.
 
+## `cbm-cypher.sh`'s officially-relied-on aggregate templates — 2 of 5 were silently broken, now fixed, plus 3 more issues found in a same-day code-review pass (field-verified 2026-07-17)
+
+The decision table has always pointed whole-graph questions (dead code / hubs / cross-layer / routes) at `cbm-cypher.sh` as this skill's flagship advantage over per-symbol tools — that claim had never actually been executed and checked end-to-end before this pass.
+Turned out 2 of the 5 templates were broken in ways that produced a confidently-formatted, plausible-looking WRONG answer rather than an honest error — the same dangerous failure shape as `codegraph explore` on aggregate questions, see `codegraph-navigator/references/blindspots.md`.
+
+- **`hubs` was completely non-functional.**
+  The shipped query was `MATCH (c:Class) RETURN ... ORDER BY c.degree DESC LIMIT 20`.
+  Ran `MATCH (c:Class) RETURN keys(c) LIMIT 3` directly: the schema is `name, qualified_name, label, file_path, start_line, end_line` — **`degree` does not exist as a property on Class nodes at all.**
+  `ORDER BY` on an always-null column is a silent no-op, so the "top 20 hubs" was really just native scan order.
+  Confirmed the practical damage on RuoYi-Vue-Plus: `TestTree` (a test-only domain class) and `BackProcessBo`/`SysDeptVo` (plain data objects) ranked in the top 20 "god classes," while zero real utility/base classes appeared.
+  Fixed in `cbm-cypher.sh` by aggregating real inbound `CALLS` edges across each class's methods (`MATCH (m:Method)<-[:CALLS]-() WHERE m.parent_class IS NOT NULL RETURN m.parent_class, count(*) ... ORDER BY count(*) DESC`) rather than counting direct calls to the Class node itself.
+  Tried that naive version first and it undercounts badly, because a `CALLS` edge into a `Class` node is a **constructor call only** (`new Foo()`); ordinary `obj.method()` calls attach to the `Method` node, not the class.
+  The fixed query's top results — `StringUtils` (279), `R` (259), `LoginHelper` (230), `BaseMapperPlus` (133), `StreamUtils` (110), `BaseController` (70) — are exactly the utility/base classes a Java engineer would expect to top this list, a dramatic accuracy jump from the broken version.
+  Caveat confirmed by testing on plus-ui (the JS/TS/Vue repo): this class-level aggregation returns 0 rows there, because plus-ui has essentially no `Method`-labeled nodes (1 total) — Vue/TS code in this graph is modeled as `Function`, not class methods.
+  This is not a bug, it's a real modeling mismatch: **the fixed `hubs` template only works for class/OOP-heavy repos (Java, etc.); it has no signal for a function-oriented JS/TS/Vue codebase**, which would need a `Function`-level equivalent (not built — out of scope for this pass, note it if asked to extend this template).
+- **`cross-layer` hard-failed on its own documented default invocation.**
+  Running `cbm-cypher.sh cross-layer` with zero args (the way the SKILL.md decision table shows it) returned `unexpected operator at pos 38` on every single call — not a graceful `hint`, a raw Cypher parser error surfaced straight to the caller.
+  Isolated the cause by testing 3 query variants directly: `coalesce(a.file_path, a.file) CONTAINS '...'` in a `WHERE` clause breaks the parser, while the same `coalesce(...)` works fine inside `RETURN`, and a plain `a.file_path CONTAINS '...'` (no coalesce) works fine in `WHERE`.
+  Also confirmed via `WHERE n.file_path IS NULL` that 0 of 2163 Method nodes in this repo actually lack `file_path`, so coalesce's `.file` fallback was never doing anything useful here anyway.
+  Fixed by dropping `coalesce()` from the `WHERE` clause only (kept in `RETURN` for display).
+  The fixed query returns exactly 4 real controller→mapper layer violations on RuoYi-Vue-Plus (e.g. `TestBatchController.add` calling `insertBatch` directly on a Mapper) — a small, plausible number for a codebase that mostly routes through its service layer correctly, which is itself a useful signal (the rare violations are worth looking at precisely because they're rare).
+- **`dead-code` (the plain `Function`-label template, distinct from `dead-code-methods`) has its own systematic false-positive pattern, not previously documented.**
+  Every Java interface method declaration turns out to be double-registered in the graph as BOTH a `Method` node AND a separate `Function` node at the identical file/line — confirmed via `MATCH (n) WHERE n.name = "..." RETURN labels(n), n.file_path` on 5 different interface methods, each producing exactly this Method+Function pair on the interface file, plus a third `Method` node on the impl side.
+  Real `CALLS` edges from real callers attach only to the `Method`-labeled twin (consistent with the interface/impl section above) — the `Function`-labeled twin is structurally incapable of ever having an inbound edge, so `dead-code` reports **every single interface method in the codebase as dead**, independent of and in addition to the already-documented impl-side blind spot (which only affects `dead-code-methods`, the `Method`-label template).
+  This is NOT a blanket "Function label is broken" finding — confirmed 95 of 449 Function nodes in this repo DO have real inbound CALLS edges, and a genuinely-unused enum method (`FormatsType.getFormatsType`) was correctly flagged with zero grep hits repo-wide to confirm it really is dead.
+  The false-positive is specific to interface method declarations; `cbm-cypher.sh` now emits a warning on every `dead-code` call telling the caller to cross-check any `*Service`/`I*`-shaped hit with `cbm-trace.sh` first.
+- **`routes` was already accurate** — spot-checked its output against real controllers (`/monitor/logininfor/list`, `/demo/sms/sendAliyun`, etc.), all well-formed and traceable to real `@RequestMapping`/`@GetMapping` sites.
+  No change needed.
+  `Class` nodes were separately found to ALSO represent MyBatis XML `<select>/<update>` statement elements — e.g. a Class node literally named `select` with `qualified_name` ending `TestDemoMapper.select`, `file_path` pointing at the `.xml`.
+  This doesn't affect `routes` (different node label) but is why the naive "count calls into Class nodes" hub query above needed the parent_class-aggregation rewrite rather than a simple `.xml`-path filter; noted here in case a future template touches raw `Class` nodes again.
+- **Methodology note**: all five templates were executed directly against RuoYi-Vue-Plus's real index this pass (not read from the script source and assumed correct) — the same discipline as the interface/impl and dynamic-`import()` findings above.
+  Re-run this spot-check after any `codebase-memory-mcp` version bump; a schema change could silently reintroduce or shift these issues.
+- **Same-day code-review follow-up found 3 more issues in this same template set, all now fixed.**
+  A structured review of the just-fixed script (SOLID/security/quality pass, not a fresh field test of new query shapes) surfaced these by re-reading the fix with the discipline of "would a wrong answer here look plausible" rather than just "does it run":
+  1. **Silent truncation, present on every fixed-LIMIT template, never previously checked.**
+     None of the templates compared their returned row count against their own `LIMIT`, so a true result set bigger than the cap was returned looking exactly like a complete one — the same dangerous shape as the `hubs`/`cross-layer` bugs above, just not yet caught.
+     Ran a direct `count(*)` against each template's `WHERE` clause with no `LIMIT` and compared: `routes` LIMIT 200 vs true count **303** (103 hidden, 34%); `dead-code` LIMIT 100 vs true count **348** (248 hidden, 71%); `dead-code-methods` LIMIT 100 vs true count **1159** (1059 hidden, 91%).
+     This directly contradicts the "`routes` was already accurate — no change needed" line earlier in this section — that check only verified individual row correctness (real controllers, well-formed paths), never verified the total count against the cap, so a third of the real routes were being silently dropped the whole time.
+     Fixed generically: `cbm-cypher.sh` now runs a cheap follow-up `count(*)` whenever a template's result count exactly equals its `LIMIT`, and emits a stderr warning with the real total and how many rows are hidden.
+     `hubs` is deliberately exempt — a "top 20" ranking has no "true total" to compare against, capping there is the intended behavior, not data loss.
+  2. **`cross-layer`'s `layerA`/`layerB` arguments were spliced into the Cypher string with no escaping.**
+     Confirmed live: passing an argument containing a single quote (`/controller/' OR '1'='1`) crashes the parser (`expected token type 85, got 86`) instead of being treated as a literal path-fragment filter — an injection-shaped input-handling defect, not merely a crash-on-weird-input bug, even though a full working injection payload for this specific restricted Cypher grammar was not constructed.
+     Fixed by stripping `'` and `\` from both arguments before interpolation; re-tested with the same payload above post-fix — returns a normal empty-result JSON instead of crashing.
+  3. **This script's underlying `cbm_call` (in `scripts/_project.sh`) has no JSON-validation safety net, unlike codegraph-navigator's `cg_call()` (see that skill's `_gate.sh`).**
+     Before today's fixes, both the `hubs` degree-ordering bug and the `cross-layer` coalesce bug manifested as a *raw, unhandled crash* reaching the caller — not a graceful `{"error", "hint"}` response — because nothing between the Cypher engine and stdout ever validated the output was JSON.
+     This violates the "every script returns valid JSON with a hint, never a raw crash" contract both `SKILL.md`s describe as the mandatory-sequence guarantee.
+     Fixed LOCALLY inside `cbm-cypher.sh` (a `run_query` wrapper, same tempfile + `jq empty` pattern as `cg_call()`) so this script now upholds that guarantee regardless of future template bugs.
+     Not fixed: the shared `_project.sh::cbm_call` itself, which `cbm-find.sh`/`cbm-grep.sh`/`cbm-trace.sh`/`cbm-impact.sh`/`cbm-snippet.sh`/`cbm-arch.sh` all call directly — those 6 scripts still have no equivalent protection.
+     Widening the fix to the shared helper would touch every script in this skill in one pass; deliberately left as a follow-up rather than done inside an already-large review, to keep this change reviewable and its regression surface small.
+
 ## General
 - Reflection / dynamic dispatch / DI decided by config: graph edges may be missing or land on interfaces (see the dedicated Java interface section above for the specific, verified failure mode).
 - **Methodology note (2026-07-16):** do not carry forward blind-spot claims sourced from a GitHub issue number without opening the issue and confirming it says what you think it says.

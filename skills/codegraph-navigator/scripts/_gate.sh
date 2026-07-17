@@ -47,6 +47,15 @@ export CG_ROOT="$ROOT"
 # JSON passes through untouched, anything else (that message, or a genuine
 # crash) becomes a structured `{"error": "...", "exitCode": N}` object so
 # callers can always safely pipe the result into jq.
+# Plausible (NOT independently confirmed) reason this gap exists: upstream's
+# CLAUDE.md documents a "return a SUCCESS-shaped response with guidance
+# instead of isError" design principle using MCP-protocol terms
+# (ToolHandler.execute, tools/list, textResult) -- read as scoped to the MCP
+# server path, not the standalone CLI this skill calls (`codegraph install`
+# is deliberately never run here). We could not test an actual MCP session
+# to confirm the CLI truly falls outside that guarantee, so treat this as
+# background context, not the basis for the fix -- the fix rests entirely on
+# the byte-verified CLI behavior above. See references/blindspots.md.
 cg_call() {
   local out err status msg
   err=$(mktemp)

@@ -15,6 +15,13 @@ description: >
 2. **Effort awareness (team-measured fact).**
    Retrieval quality is capped by the reasoning/output token budget: at low/medium effort, accuracy is LOWER than at high/xhigh/max — the graph does not lift this cap.
    Weigh this when stating conclusions, and see Quality rules for when to delegate or recommend higher effort.
+3. **Both `.codebase-memory/` and `.codegraph/` present in the same repo?**
+   Priority order for picking between the two tools: **accuracy first, then tokens, then speed** — never pick by habit.
+   For single-symbol questions (who calls X, show me X, what breaks if I change X, interface→impl): prefer `codegraph-navigator` — its `node`/`explore` synthesize the Java interface/impl edge automatically in ONE call (`[dynamic: interface → impl]`), where this skill needs a mandatory 2-call union (interface + impl) every time to reach the same accuracy — same accuracy ceiling, fewer tokens and one round-trip faster on codegraph's side.
+   For whole-graph AGGREGATE questions (dead code, hubs/god-classes, cross-layer violations): prefer THIS skill's `cbm-cypher.sh` — codegraph has no raw graph-query equivalent and its `explore` command is field-verified to produce confidently-wrong answers for these three shapes (see `codegraph-navigator/references/blindspots.md`).
+   `cbm-cypher.sh`'s templates are field-verified accurate as of 2026-07-17 (2 of the 5 had real bugs, now fixed — see this skill's own `references/blindspots.md`), with documented per-template caveats (see Quality rules and the Decision table below).
+   For "list all routes": codegraph's `cg-find.sh -k route` is field-verified to be an exact enumeration AND includes the HTTP verb in the name (`cbm-cypher.sh routes`'s Cypher schema does not model the verb) — prefer codegraph's when both are available.
+   If the user names a tool explicitly, use that one.
 
 All scripts auto-resolve the project name; never pass or guess it.
 All scripts print compact JSON; never re-run with higher limits — paginate.
@@ -29,7 +36,11 @@ All scripts print compact JSON; never re-run with higher limits — paginate.
 | "What breaks if I change ..." (uncommitted diff) | `scripts/cbm-impact.sh` | maps git diff → impacted symbols + risk |
 | "Show me the code of X" | `scripts/cbm-snippet.sh <qualified-name>` | qualified name comes from cbm-find output; CHEAPER than Read on whole file |
 | "Architecture / modules / entry points / routes overview" | `scripts/cbm-arch.sh` | one call, cache mentally for the session |
-| whole-graph patterns: dead code, controller→mapper violations, god classes, route list | `scripts/cbm-cypher.sh dead-code\|cross-layer\|hubs\|routes` | one scan beats N searches |
+| "Dead/unused code" — plain functions, non-OOP code | `scripts/cbm-cypher.sh dead-code` | field-verified (2026-07-17) reliable EXCEPT every Java interface method false-positives here (separate bug from the Impl-side one below, see references/blindspots.md) — do not trust a `*Service`/`I*`-shaped hit without cross-checking `cbm-trace.sh` first; capped at 100 rows, script warns on stderr if the true total is higher (verified: 348 on RuoYi-Vue-Plus) — do not report the shown rows as the complete list when that warning fires |
+| "Dead/unused code" — Java class methods | `scripts/cbm-cypher.sh dead-code-methods` | ALWAYS union with the matching interface method via `cbm-trace.sh` before reporting any `*Impl` hit as dead — see Quality rules; capped at 100 rows, script warns if truncated (verified: 1159 on RuoYi-Vue-Plus, over 90% hidden by the cap — expect this warning to fire often on real repos) |
+| "Which classes/god-classes have the most callers" (hubs) | `scripts/cbm-cypher.sh hubs` | field-verified fixed 2026-07-17 (was completely non-functional — ordered by a property that doesn't exist); now aggregates real inbound calls per class. Java/class-oriented repos only — returns empty on function-oriented JS/TS/Vue repos, that's a real modeling gap, not a query bug. Top-20 by design, not subject to the truncation warning below |
+| "Controller calling Mapper directly" (layer violations) | `scripts/cbm-cypher.sh cross-layer [layerA] [layerB]` | field-verified fixed 2026-07-17 (the zero-arg default used to hard-crash the Cypher parser); `layerA`/`layerB` args are sanitized before use, capped at 200 rows with the same truncation warning as above |
+| "List all routes" | `scripts/cbm-cypher.sh routes` | field-verified accurate per-row, but WAS silently capped at 200 against a true count of 303 on RuoYi-Vue-Plus (34% hidden) until a 2026-07-17 review caught it — now warns on truncation; if `.codegraph/` is ALSO present, prefer `cg-find.sh -k route` instead — same accuracy, no cap at this repo's scale, includes the HTTP verb, cheaper (no Cypher round-trip) |
 | literal text / string / SQL fragment | `scripts/cbm-grep.sh '<text>'` | graph-scoped grep |
 
 ## Mandatory sequences (accuracy protocol)
@@ -50,6 +61,12 @@ All scripts print compact JSON; never re-run with higher limits — paginate.
   A "0 callers" result on an impl method proves nothing by itself.
   ALWAYS also query the interface's copy of the method and take the union before reporting a count, "unused", or "safe to remove".
   See `references/blindspots.md` for the confirmed repro.
+- **`cbm-cypher.sh dead-code` (the `Function`-label template) has a DIFFERENT, also-mandatory caveat (field-verified 2026-07-17): every Java interface method is reported dead regardless of real usage** — interface declarations are double-registered as both a `Function` node and a `Method` node, and only the `Method` twin ever receives inbound `CALLS` edges.
+  This is not the same bug as the Impl-side rule above (that one is about `dead-code-methods`); this one hits the interface declaration itself, in the OTHER template.
+  Cross-check any `*Service`/`I*`-shaped hit with `cbm-trace.sh` before reporting it dead; genuinely reliable for ordinary non-interface functions.
+- **`cbm-cypher.sh`'s `dead-code`/`dead-code-methods`/`cross-layer`/`routes` templates are capped (100/100/200/200 rows) and now self-report truncation (field-verified 2026-07-17, added in a code-review pass): if the JSON on stderr contains a `"results capped at N of M total"` warning, the M-row rows you did NOT get are real data, not noise.**
+  Never state or imply the returned rows are the complete list when this warning is present — say "at least N" or re-run with a narrower filter instead.
+  `hubs` is exempt by design (an intentional top-20 ranking has no "true total" to compare against).
 - Route paths: class-level `@RequestMapping` prefixes were field-verified PRESENT (not dropped) across 3 real controllers on the currently installed version — do not assume prefix-loss by default.
   Upstream issue #734 (prefix dropped) is real but open/unfixed upstream as of this writing; if a route path looks truncated or wrong, spot-check the one controller in question against source rather than assuming it's systemic.
 - Code changed after the last sync may be missing: if the user references a change from minutes ago, prefer reading the working tree.

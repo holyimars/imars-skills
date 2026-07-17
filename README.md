@@ -120,7 +120,9 @@ git clone https://github.com/holyimars/imars-skills && cd imars-skills
 - **前端:Vue/React 路由懒加载 `() => import('...')` 组件在图谱里没有引用边**(field-verified on plus-ui)——判断路由懒加载组件是否被使用,直接 grep router 配置,不要信图谱的"0 引用";
 - `detect_changes` 在 git worktree 下失效(上游 bug),请在普通 clone 使用;
 - `effort` 为 subagent frontmatter 较新字段,部署前按自测第 7 条验证;
-- 引用 GitHub issue 编号前必须实际打开确认——曾核查过的 5 个二手引用编号里有 4 个对不上号(指向无关内容或不存在),只有 1 个精确匹配。
+- 引用 GitHub issue 编号前必须实际打开确认——曾核查过的 5 个二手引用编号里有 4 个对不上号(指向无关内容或不存在),只有 1 个精确匹配;
+- **`cbm-cypher.sh` 的 5 个全图模板本身,2026-07-17 逐个实跑核实前从未验证过端到端准确性——结果 2 个是静默答错,已修复**:`hubs` 原查询按一个根本不存在的 `c.degree` 属性排序(`ORDER BY` 对全空列是空操作),排出来的"top 20 god class"里混进测试类和普通数据对象,零真实工具类;`cross-layer` 默认(零参数)调用会直接把 Cypher 解析器打崩(`unexpected operator`),不是原生 hint 而是硬报错。两个都已在脚本里修复(`hubs` 改为按方法级真实入度聚合,`cross-layer` 去掉 WHERE 子句里导致解析失败的 coalesce),修复后的 `hubs` 排出 `StringUtils`/`R`/`LoginHelper` 等真实高频工具类,`cross-layer` 稳定返回 4 条真实跨层调用。另外 `dead-code`(Function 标签模板,区别于 `dead-code-methods`)对 Java 接口方法**必然**误报——接口方法在图里被同时注册成 `Function` 和 `Method` 两个节点,只有 `Method` 节点会挂真实调用边,这是本次新发现、此前未记录的盲区,细节见 `skills/cbm-navigator/references/blindspots.md`。
+- **同日的代码审查(而非新一轮字段实测)在刚修好的模板集里又挖出 3 个问题,已全部修复**:①所有固定 `LIMIT` 的模板此前从没检查过返回行数和 `LIMIT` 是否相等,导致真实结果比上限多时被静默截断且零提示——实测 `routes` 真实 303 条但 `LIMIT 200`(隐藏 34%)、`dead-code` 真实 348 个但 `LIMIT 100`(隐藏 71%)、`dead-code-methods` 真实 1159 个但 `LIMIT 100`(隐藏 91%),此前"routes 已验证准确"的结论只核对了单条记录格式、从未核对过总数;现在脚本会在返回行数等于上限时自动跑一次 `count(*)` 并在 stderr 报出真实总数和隐藏行数。②`cross-layer` 的 `layerA`/`layerB` 参数此前未经转义直接拼进 Cypher 字符串,含单引号的输入会让解析器崩溃(实测报错 `expected token type 85, got 86`),属于注入形态的健壮性缺陷,已改为剥离参数里的引号和反斜杠。③这个脚本依赖的 `_project.sh::cbm_call` 没有 JSON 校验兜底(不像 codegraph-navigator 的 `cg_call()`),Cypher 引擎级崩溃此前会把原始报错甩给调用方而非返回结构化 `{"error","hint"}`——已在 `cbm-cypher.sh` 内部本地补上这层校验,但共享的 `cbm_call` 本身未动,其余 6 个直接调用它的脚本仍缺这层保护,留作后续。
 
 ## codegraph-navigator 已知边界(上游)
 
@@ -133,22 +135,22 @@ git clone https://github.com/holyimars/imars-skills && cd imars-skills
 - "列出所有 routes/classes/interfaces/components" 这类**穷举**(而非模糊搜索)反而有直接等价物:`cg-find.sh -k route\|class\|interface\|component`(pattern 留空)——实测数量与 `codegraph status` 的 `nodesByKind` 完全一致(303/303 routes、482/482 classes、99/99 components),比 cbm-cypher.sh 的 routes 模板还多带 HTTP 方法;
 - `codegraph install` 会写 MCP 配置,本套件明确不使用它。
 
-## 工具选型对比(实测,2026-07-16,v1.4.1 vs codebase-memory-mcp v0.9.0)
+## 工具选型对比(实测,2026-07-16/17,codegraph v1.4.1 vs codebase-memory-mcp v0.9.0)
 
-在 RuoYi-Vue-Plus + plus-ui 两个真实仓库上做的头对头验证,同一批符号、同一批盲区场景:
+在 RuoYi-Vue-Plus + plus-ui 两个真实仓库上做的头对头验证,同一批符号、同一批盲区场景。**两个 skill 的 SKILL.md 现在都按同一优先级选工具:准确度 > tokens 消耗 > 返回速度**——先看谁的结果对,分数相同再看谁调用次数/token 少,最后才比谁快;从不单纯因为"习惯用哪个"而选。
 
-| 盲区场景 | codebase-memory-mcp | codegraph |
+| 场景 | codebase-memory-mcp | codegraph |
 |---|---|---|
-| Java 接口→实现类调用 | 静默返回 0 callers,查询层无法修复,只能靠 SKILL.md 里的 MANDATORY 交叉查协议兜底 | 图里有 interface→impl 链接,`node`/`explore` 一次给出双向证据 + `[dynamic: ...]` 标注,`cg-trace.sh` 已实现自动桥接;但裸 `callers` 命令仍会把接口声明误当成"1 个 caller" |
-| Vue Router `() => import()` 懒加载 | 完全无边 | 完全一样,同样无边 |
+| Java 接口→实现类调用 | 静默返回 0 callers,查询层因 Cypher 引擎限制无法修复,只能靠 SKILL.md 里的 MANDATORY 交叉查协议(必须 2 次调用取并集)兜底 | 图里有 interface→impl 链接,`node`/`explore` **一次调用**给出双向证据 + `[dynamic: ...]` 标注,`cg-trace.sh` 已实现自动桥接;准确度上限跟 cbm 一样(底层裸 `callers` 命令仍会把接口声明误当成"1 个 caller"),但达到同等准确度所需的调用次数更少、token 更省 |
+| Vue Router `() => import()` 懒加载 | 完全无边 | 完全一样,同样无边——两个工具在这一点上共同的局限,不是某一方的短板,换工具解决不了,只能 grep router 配置 |
 | Spring `getBean(运行时拼接名)` | 完全无法解析 | 用接口/实现启发式把全部候选实现列为 dynamic dispatch——不精确但诚实可用 |
-| MyBatis XML mapper 绑定 | 完全无法解析 | 完全一样,XML 建了文件节点但 0 symbols,零绑定 |
-| 死代码/hubs 全图模式查询 | 有专门的 Cypher 模板(`cbm-cypher.sh`) | **无等价物,且 `cg-explore.sh` 会文不对题地"答出来"**——关键词匹配到同名符号后套用正常回答的格式,不报错也不提示这是错的,比"查不到"更危险 |
-| routes 全量列表 | 有专门的 Cypher 模板(`cbm-cypher.sh routes`),只含 path | 实测有直接等价物:`cg-find.sh -k route`(pattern 留空)穷举,数量与 `codegraph status` 精确对上,`name` 字段还带 HTTP 方法 |
+| MyBatis XML mapper 绑定 | 完全无法解析 | 完全一样,XML 建了文件节点但 0 symbols,零绑定——同上,两个工具共同的局限 |
+| 死代码/hubs/跨层违规全图模式查询 | 有专门的 Cypher 模板(`cbm-cypher.sh`);2026-07-17 逐个实跑核实后,`hubs`/`cross-layer` 2 个模板发现是静默答错(已修复,见上方"已知边界"),`dead-code`(Function 标签)对 Java 接口方法必然误报(新发现,用 `dead-code-methods`+交叉查协议代替) | **无等价物,且 `cg-explore.sh` 会文不对题地"答出来"**——关键词匹配到同名符号后套用正常回答的格式,不报错也不提示这是错的,比"查不到"更危险;实测过三种问法(死代码/hubs/routes)全部踩坑 |
+| routes 全量列表 | 有专门的 Cypher 模板(`cbm-cypher.sh routes`),单条记录准确,但曾在这个仓库的规模上静默截断(`LIMIT 200` vs 真实 303 条,隐藏 34%,同日代码审查发现并修复,现会主动报出真实总数),只含 path 不含 HTTP 方法 | 实测有直接等价物:`cg-find.sh -k route`(pattern 留空)穷举,数量与 `codegraph status` 精确对上,`name` 字段还带 HTTP 方法,在这个仓库规模下无截断问题,且是单次 CLI 调用而非 Cypher 往返——两个工具都存在时优先这个 |
 | 改动关联的测试文件 | 无此能力 | `codegraph affected` 原生支持,返回值含 `totalDependentsTraversed` 可作为"确实没有覆盖测试"结论的可信度信号 |
 | 索引速度(RuoYi-Vue-Plus,709 文件) | 未记录精确耗时 | 2.4 秒,16497 节点/28199 边 |
 
-结论:两个工具没有绝对的谁更好,互补大于替代——单符号溯源(调用链/影响面)、routes 全量列表优先 codegraph;死代码/hubs 全图模式扫描优先 codebase-memory-mcp,且这两类问题**不要**用 `cg-explore.sh` 兜底(实测会答错而非答不出来)。
+结论:两个工具没有绝对的谁更好,互补大于替代,且**两者共享的局限(Vue 动态 import、MyBatis XML、Spring 运行时 bean 名)换工具换不掉,只能 grep**——单符号溯源(调用链/影响面)、routes 全量列表优先 codegraph(同等准确度下更省 token、更快);死代码/hubs/跨层违规全图模式扫描优先 codebase-memory-mcp 修复后的 `cbm-cypher.sh`,且这两类问题**不要**用 `cg-explore.sh` 兜底(实测会答错而非答不出来,三种问法全部验证过)。
 
 ## License
 
