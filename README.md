@@ -50,7 +50,7 @@ git clone https://github.com/holyimars/imars-skills && cd imars-skills
      --name "$(basename "$(git rev-parse --show-toplevel)")" \
      --persistence true
    ```
-   三个 flag 的原因:`--name` 固定项目短名(默认名是绝对路径扁平化,因人而异,跨机器不可移植);`--persistence true` 才会写团队共享工件 `.codebase-memory/graph.db.zst`(**默认不写**);语义检索(`cbm-find.sh -s`)依赖 similarity/semantic 边,仅 `--mode full|moderate` 构建,若语义检索无结果用 `--mode full` 重建。
+   三个 flag 的原因:`--name` 固定项目短名(默认名是绝对路径扁平化,因人而异,跨机器不可移植);`--persistence true` 才会写团队共享工件 `.codebase-memory/graph.db.zst`(**默认不写**);语义检索(`cbm-find.sh -s`)依赖 similarity/semantic 边,仅 `--mode full|moderate` 构建,若语义检索无结果用 `--mode full` 重建。**实测(2026-07-17):语义检索仅对英文关键词可靠,中文查询(不论整词还是拆词)得分都在 0.02-0.10 的近随机区间,不可用**——中文业务词查询请用 `cbm-grep.sh`(纯文本匹配,能命中中文 Javadoc 注释),不要用 `-s`;`cbm-find.sh` 现在会在语义搜索最高分低于 0.3 时自动给出这条提示。手动用 `--repo-path` 传相对路径重新索引时留意:曾实测出会静默建出一个同仓库的重复 project 而不是更新原有的,务必配合绝对路径 + 显式 `--name`,复核 `list_projects` 确认没有多出条目。
 3. 本机有 `jq`。
 
 可选增强:对 ≥1 万行的重点仓库,把 `optional/CLAUDE.md.snippet` 内容加入该仓库的 CLAUDE.md,强化触发。其中 `<PROJECT_NAME>` 填索引输出 JSON 的 `project` 字段值——**注意命名规则(实机验证):project 名是仓库绝对路径的扁平化**(去掉前导分隔符、分隔符换连字符),如 `/Users/me/www/my-service` → `Users-me-www-my-service`,不是目录名;可用 `codebase-memory-mcp cli list_projects` 查询。skill 脚本已内置该规则的自动解析(扁平化精确匹配 + basename 后缀兜底),无需手工配置。
