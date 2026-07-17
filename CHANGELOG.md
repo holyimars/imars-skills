@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.0.15 (2026-07-17)
+- **New: `optional/hooks/codegraph-augment.sh`** — the PreToolUse hook that augments Grep/Glob with graph symbol matches existed only for `cbm-navigator` until now; this adds the parallel counterpart for `codegraph-navigator`, closing a gap the README had explicitly flagged ("可选,仅 cbm-navigator").
+  Structurally mirrors `cbm-augment.sh` (self-contained, every failure path exits 0), but calls the `codegraph` CLI's `query -j -l 5 -p "$ROOT"` instead.
+  Both scripts are designed to coexist as two entries in the same `Grep|Glob` PreToolUse hooks array (`optional/settings-hook-{user,project}.json` now wire both): each checks for its own index product (`.codebase-memory/` vs `.codegraph/`) up front and silently no-ops if absent, so a repo indexed by only one of the two tools still works correctly with both hooks installed.
+- **Field-verified (RuoYi-Vue-Plus, already dual-indexed) before writing the script**: `codegraph query` returns a clean `[]` + exit 0 on both a nonexistent symbol and a pattern containing regex metacharacters (it does fuzzy text matching, not regex parsing, so Grep-style patterns can't crash it); `-p <path>` correctly resolves the target repo from any cwd.
+  Also found and guarded against a CLI quirk not previously documented for `query` specifically (only for `callers`/`impact` in `codegraph-navigator/scripts/_gate.sh`): running `query` against an *unindexed* directory prints an ANSI-colored `[ERR] CodeGraph not initialized` line to **stdout** with exit code 0 — not stderr, not JSON. The hook's upfront `.codegraph/` existence check is what keeps normal (dual-hook) operation off that path; a jq-parse `|| exit 0` is the fallback.
+- `install.sh`/`uninstall.sh` updated to copy/chmod/remove `codegraph-augment.sh` alongside `cbm-augment.sh` under the existing `--with-hook` flag (no new flag added); `README.md`'s component table row for the hook updated to describe both scripts and the coexistence design instead of "仅 cbm-navigator".
+
 ## 0.0.14 (2026-07-17)
 - **Third round of field verification, this time covering BOTH skills' officially-claimed strengths (not just their known blind spots), plus a direct same-symbol/same-repo comparison between the two tools.** Triggered by explicit user feedback that prior rounds under-verified `cbm-navigator`'s own claims and over-relied on paraphrased web research for one methodological point — this round is 100% live-CLI execution against RuoYi-Vue-Plus/plus-ui, no web research.
 - **`cbm-cypher.sh`'s aggregate templates (this skill's flagship advantage over per-symbol tools) had never been executed end-to-end before this pass — 2 of 5 turned out to be silently broken, now fixed:**

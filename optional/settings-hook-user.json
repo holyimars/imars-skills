@@ -4,7 +4,8 @@
       {
         "matcher": "Grep|Glob",
         "hooks": [
-          { "type": "command", "command": "~/.claude/hooks/cbm-augment.sh", "timeout": 3 }
+          { "type": "command", "command": "~/.claude/hooks/cbm-augment.sh", "timeout": 3 },
+          { "type": "command", "command": "~/.claude/hooks/codegraph-augment.sh", "timeout": 3 }
         ]
       }
     ]

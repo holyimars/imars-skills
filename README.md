@@ -16,7 +16,7 @@
 | `cbm-deep-analyst` subagent | `agents/` | 高风险问题(影响面/改造决策)以 `effort: high` 在独立上下文运行并回传已验证结论 |
 | `codegraph-navigator` skill | `skills/codegraph-navigator/` | codegraph 触发协议 + 8 个查询脚本 + 盲区参考,含接口/实现自动桥接 |
 | `codegraph-deep-analyst` subagent | `agents/` | 同上,基于 codegraph 索引 |
-| PreToolUse hook(可选,仅 cbm-navigator) | `optional/hooks/` | Grep/Glob 时自动注入图谱符号匹配作为 additionalContext,非阻断 |
+| PreToolUse hook(可选,两套各一份) | `optional/hooks/` | Grep/Glob 时自动注入图谱符号匹配作为 additionalContext,非阻断;`cbm-augment.sh`/`codegraph-augment.sh` 各自按对应索引产物(`.codebase-memory/`/`.codegraph/`)是否存在决定是否生效,可以同时接进 settings.json,只建了其中一种索引的仓库另一个 hook 会静默跳过 |
 | CLAUDE.md 片段(可选) | `optional/` | 两套集成各一份,强化触发 |
 
 ## 安装(两种方式,选其一;两套 skill 一起装,装了哪个 CLI 就有哪个能用)
