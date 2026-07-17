@@ -69,12 +69,13 @@ git clone https://github.com/holyimars/imars-skills && cd imars-skills
 
 ## codegraph-navigator 前提(codegraph)
 
-1. 已安装 codegraph(实测用 npm 方式;官方也提供 `install.sh`/`install.ps1` 独立二进制,见其 [README](https://github.com/colbymchenry/codegraph)):
+1. 已安装 codegraph(推荐 npm 方式;官方也提供 `install.sh`/`install.ps1` 独立二进制,见其 [README](https://github.com/colbymchenry/codegraph)):
    ```bash
    npm i -g @colbymchenry/codegraph
    codegraph telemetry off   # 可选,默认开启遥测
    ```
    **不要跑 `codegraph install`**——那条命令会往 Claude Code / Cursor / Codex 等写入 MCP server 配置,与本仓库"零 MCP、纯 CLI"的设计相悖。本 skill 全程只用 `codegraph` CLI 子命令。
+   **实测(2026-07-18,Windows):不要在 Git Bash 里跑官方 `install.sh`**——读了源码确认它的 OS 判断只有 `Darwin`/`Linux` 两个分支,`uname -s` 在 Git Bash(MINGW64)下的实际输出会落进 `*) unsupported OS; exit 1` 直接退出,对应上游 open issue [#1294](https://github.com/colbymchenry/codegraph/issues/1294);上面的 npm 方式没有这个 OS 判断步骤,不受影响,Windows 上如果确实要用独立二进制,改用 PowerShell 跑 `install.ps1`。
 2. 目标仓库已建索引:
    ```bash
    codegraph init "$(git rev-parse --show-toplevel)"
@@ -129,10 +130,15 @@ git clone https://github.com/holyimars/imars-skills && cd imars-skills
 完整证据见 `skills/codegraph-navigator/references/blindspots.md`。要点:
 
 - Java 接口/实现盲区**明显好于** cbm-navigator:`node`/`explore` 会给出 `[dynamic: interface → impl]` 双向标注,`cg-trace.sh` 已内置自动桥接;但底层 `callers` 命令本身仍是单跳,查 `*Impl` 类方法只会返回 1 个"caller"——那其实是接口声明本身,不是真实调用方,必须靠 `cg-trace.sh`/`cg-node.sh`/`cg-explore.sh` 而非裸 CLI 调用;
+- **CALLS 边是接收者类型感知的,不会有 cbm-navigator 那种 Lombok getter/setter 同名碰撞问题(实测 2026-07-18)**:用同一个"getDictLabel"名字(业务接口方法 + 4 个不相关 DTO/VO/Entity 的 Lombok getter)测试,codegraph 完全正确区分,零污染——这是相对 cbm(name-only 解析,实测 60% 假阳性)的明确优势;
 - Vue/React 动态 `() => import('...')` 路由懒加载、MyBatis XML mapper 绑定:**跟 codebase-memory-mcp 一样是盲区**,graph 完全无感知,直接 grep/read;
 - Spring `getBean(运行时拼接名)` 场景:codegraph 会把接口的全部实现类都列成 dynamic dispatch 候选——诚实但不精确(不代表"全部被调用"或"就是这一个"),仍需 grep bean 名拼接逻辑;
+- **⚠️ 实测新发现(2026-07-18):`SpringUtils.getBean(X.class)` 这种确定性单目标的 Bean 查找,比上面的运行时拼接名场景更差——完全解析不到,`callers`/`node`/`impact` 三个命令 0/2 召回**,且这个盲区会直接传导进 `cg-impact.sh` 的影响面分析,导致"改这个方法安全吗"这类问题被漏报;查任何接口方法的调用方/影响面前,建议顺手 grep 一下 `SpringUtils.getBean(<接口>.class)` 作为兜底核实;
+- **⚠️ 实测新发现(2026-07-18):类的 `extends` 关系单向,查父类能看到子类列表(标签是 `Called by`,略有误导),反过来查子类完全看不到父类是谁**,JSON schema 里没有 `extends`/`superclass` 字段,精确复现上游 open issue [#1328](https://github.com/colbymchenry/codegraph/issues/1328)——要查一个类继承自谁,直接 grep `class X extends Y` 声明行;
+- **⚠️ 实测新发现(2026-07-18):`cg-explore.sh`(官方文档最推荐的旗舰单一命令,也是唯一默认开启的 MCP 工具)纯中文查询完全失效**,测试了"字典标签""字典标签查询""用户登录""部门管理"四个不同中文业务词全部返回空,但用完全相同的词跑底层 `cg-find.sh`(FTS 全文检索)却精确命中——纯中文业务问题请直接用 `cg-find.sh`,不要指望 `cg-explore.sh`;
 - 没有裸图查询能力(无 Cypher 等价物),死代码/hubs 这类全图模式问题**明确不要用 `cg-explore.sh` 兜底**——实测(2026-07-17)它对这类问题做的是关键词/语义检索而非图分析,会把问题里的词(如"find"/"list")匹配到同名符号上,再套用跟正常答案一模一样的"Blast radius"格式自信地给出**看似合理实则文不对题**的结果,不是"答不出来"而是"答错了还不报错";这两类问题改用 cbm-navigator;
 - "列出所有 routes/classes/interfaces/components" 这类**穷举**(而非模糊搜索)反而有直接等价物:`cg-find.sh -k route\|class\|interface\|component`(pattern 留空)——实测数量与 `codegraph status` 的 `nodesByKind` 完全一致(303/303 routes、482/482 classes、99/99 components),比 cbm-cypher.sh 的 routes 模板还多带 HTTP 方法;
+- **实测新发现(2026-07-18,Windows):`codegraph index` 全量重建时若有任何其他 codegraph 进程(哪怕只是一次只读 `query`)并发持有数据库文件,会直接硬失败退出**(`EPERM: database file is in use`,不会自动重试,但确认不会损坏现有索引),范围比上游 issue #1325 描述的"MCP server 运行时冲突"更广;日常增量更新用的 `codegraph sync` 未复现此问题,`index --force` 应单独跑,不要和其他 codegraph 调用并发;
 - `codegraph install` 会写 MCP 配置,本套件明确不使用它。
 
 ## 工具选型对比(实测,2026-07-16/17,codegraph v1.4.1 vs codebase-memory-mcp v0.9.0)
@@ -149,6 +155,10 @@ git clone https://github.com/holyimars/imars-skills && cd imars-skills
 | routes 全量列表 | 有专门的 Cypher 模板(`cbm-cypher.sh routes`),单条记录准确,但曾在这个仓库的规模上静默截断(`LIMIT 200` vs 真实 303 条,隐藏 34%,同日代码审查发现并修复,现会主动报出真实总数),只含 path 不含 HTTP 方法 | 实测有直接等价物:`cg-find.sh -k route`(pattern 留空)穷举,数量与 `codegraph status` 精确对上,`name` 字段还带 HTTP 方法,在这个仓库规模下无截断问题,且是单次 CLI 调用而非 Cypher 往返——两个工具都存在时优先这个 |
 | 改动关联的测试文件 | 无此能力 | `codegraph affected` 原生支持,返回值含 `totalDependentsTraversed` 可作为"确实没有覆盖测试"结论的可信度信号 |
 | 索引速度(RuoYi-Vue-Plus,709 文件) | 未记录精确耗时 | 2.4 秒,16497 节点/28199 边 |
+| Lombok getter/setter 同名碰撞(实测 2026-07-18) | 实测 60% 假阳性:`DictService.getDictLabel` 的 callers 里 6/10 其实是不相关 Vo 类的 Lombok getter,name-only 边解析 | 用同一批同名符号测试,零污染——边按接收者类型限定,不是纯按方法名 |
+| 中文业务语言查询(实测 2026-07-18) | 语义搜索(`-s`)完全不支持中文,得分近随机;纯文本 `cbm-grep.sh` 可用 | 底层 `cg-find.sh`(FTS)对中文表现好,但旗舰命令 `cg-explore.sh` 纯中文查询直接返回空——同一工具内部两个命令表现不一致,要分场景选 |
+| 反射式 DI(`SpringUtils.getBean(X.class)` 单目标)(实测 2026-07-18) | 未针对性测试(cbm 的局限是 name-only 解析导致的碰撞,不是这类 DI 场景) | 完全解析不到,0/2 召回,且会传导进 `impact` 分析导致漏报 |
+| 类继承关系(`extends`)查询(实测 2026-07-18) | 未针对性测试 | 单向缺口:查父类能看到子类,查子类看不到父类,复现上游 open issue #1328 |
 
 结论:两个工具没有绝对的谁更好,互补大于替代,且**两者共享的局限(Vue 动态 import、MyBatis XML、Spring 运行时 bean 名)换工具换不掉,只能 grep**——单符号溯源(调用链/影响面)、routes 全量列表优先 codegraph(同等准确度下更省 token、更快);死代码/hubs/跨层违规全图模式扫描优先 codebase-memory-mcp 修复后的 `cbm-cypher.sh`,且这两类问题**不要**用 `cg-explore.sh` 兜底(实测会答错而非答不出来,三种问法全部验证过)。
 

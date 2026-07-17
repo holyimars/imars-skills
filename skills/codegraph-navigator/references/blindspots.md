@@ -20,6 +20,25 @@ Use the native fallback instead; do not report graph emptiness here as "no usage
   Separately, `codegraph callers/callees/impact` report "symbol not found" via exit code 0 plus a non-JSON message on stdout (not an error exit, not stderr) — the scripts' error handling now parses stdout with `jq empty` to detect this instead of trusting the exit code, and surface it as a normal `hint` instead of crashing on a raw `jq` parse error.
 - Outbound (impl → what it calls) is NOT affected — `codegraph callees` on the impl method returns its real internal calls directly, no bridging needed.
 
+## CALLS edges are receiver/type-aware — no Lombok getter/setter name collision (field-verified 2026-07-18, direct contrast with codebase-memory-mcp)
+
+- `cbm-navigator`'s own `references/blindspots.md` documents a 60% false-positive rate on `DictService.getDictLabel` callers, caused by cbm's name-only edge resolution colliding with same-named Lombok-generated getters on unrelated DTO/VO/Entity classes.
+  Ran the identical scenario against codegraph: `getDictLabel` exists as a business method on `DictService`/`SysDictTypeServiceImpl` AND as a Lombok-generated getter on four unrelated classes (`SysDictData`, `SysDictDataBo`, `SysDictDataVo`, `DictDataDTO`).
+  `codegraph callers "SysDictDataVo::getDictLabel"` (the Lombok getter) returned exactly its 3 real call sites, all inside `SysDictTypeServiceImpl` where that Vo's getter is genuinely invoked — zero pollution from the business method's own real external callers, and vice versa: `callers "DictService::getDictLabel"` did not include any of the Lombok-getter call sites either (its actual gap is unrelated, see the `SpringUtils.getBean(X.class)` section below).
+  Root cause of the difference: codegraph's edges are keyed by qualified/receiver-typed symbol (`Class::method`), not bare method name — the collision class of bug documented for cbm-navigator does not reproduce here.
+  This is a genuine accuracy advantage worth stating plainly, not just implied by "better than codebase-memory-mcp" language elsewhere in this file.
+
+## Spring `getBean(X.class)` — deterministic single-target lookup, complete miss (field-verified 2026-07-18, distinct from and worse than the computed-name fan-out below)
+
+- The section below covers `SpringUtils.getBean(computedName)` selecting among MULTIPLE implementations, where codegraph responds with an honest (if imprecise) fan-out listing every candidate.
+  This is a different call shape entirely: `SpringUtils.getBean(DictService.class).getDictLabel(dictType, value, separator)` — a single, statically-determinable target (there is exactly one `DictService` implementation, `SysDictTypeServiceImpl`), reached through a bean-lookup-by-`Class`-literal instead of field/constructor injection.
+  Confirmed on two real call sites: `DictPatternValidator.java:51` and `ExcelDictConvert.java:65`, both calling the 3-arg `DictService.getDictLabel(String,String,String)` via `SpringUtils.getBean(DictService.class).getDictLabel(...)`.
+  Neither call site appears anywhere — not in `codegraph callers "DictService::getDictLabel"` (returned only the 2 real field-injected callers, `DictTypeTranslationImpl`/`SysNoticeController`), not in `codegraph node`'s Trail section for either overload, not in `codegraph impact "DictService::getDictLabel" -d 2` (stopped at the same 2 callers + the route they lead to, 4 nodes total).
+  0/2 recall on this call shape, consistent across all three commands.
+  This is worse than the computed-name case: that one at least surfaces something (over-inclusive candidates, flagged as uncertain via the `[dynamic: interface → impl]` fan-out), where a `SpringUtils.getBean(X.class)` chain is invisible to the extractor outright, even though the target is fully statically determinable — unlike the computed-name case, which genuinely can't be resolved without running the code.
+  Consequence for `cg-impact.sh`/blast-radius analysis is direct, not theoretical: changing `DictService.getDictLabel`'s signature or behavior would silently miss `DictPatternValidator` and `ExcelDictConvert` in the reported blast radius, a false "safe to change" read on a method with 2 more real callers than reported.
+  Fallback: grep `SpringUtils.getBean(<Interface>.class)` for the interface in question directly; this pattern is common enough in Spring codebases (validators, converters, static utility classes reaching into the Spring context outside normal DI) to be worth a standing spot-check on any interface method's blast radius before reporting a final caller count.
+
 ## Spring runtime bean-name lookup (`SpringUtils.getBean(computedName)`)
 
 - Confirmed on RuoYi-Vue-Plus's `IAuthStrategy` strategy pattern (5 implementations: Email/Password/Sms/Social/Xcx AuthStrategy, each registered under a computed bean name, selected via `SpringUtils.getBean(loginType + IAuthStrategy.BASE_NAME)` at runtime).
@@ -44,12 +63,33 @@ Use the native fallback instead; do not report graph emptiness here as "no usage
   The XML-file-has-0-symbols result is still a direct, positive confirmation that codegraph does not model the namespace binding at all, regardless of SQL content.
 - Fallback: identical to cbm-navigator's — grep the mapper interface FQN as XML `namespace=`, then Read the mapper XML directly.
 
+## Class inheritance (`extends`) is one-directional in the graph — reproduces upstream open issue #1328 (field-verified 2026-07-18)
+
+- Querying a KNOWN PARENT class's node does surface its subclasses: `codegraph node "BaseController"` lists 20+ known controller subclasses (`SysConfigController`, `SysDeptController`, `GenController`, etc.) — but under a `Called by ←` heading, the same label used for genuine call edges, not a distinct "Extended by"/"Subclasses" section.
+  Read carelessly this looks like "these classes call BaseController", when the real relationship is `extends`.
+  Querying a KNOWN CHILD class's node in the other direction surfaces nothing: `codegraph node "SysConfigController"` (confirmed `extends BaseController` in source) lists its 10 own members and nothing else — no mention of `BaseController`, no parent-class field, no inherited-member indication anywhere in the text output.
+  Confirmed this is a schema gap, not a text-rendering omission: `codegraph query "SysConfigController" -k class -j` was inspected field-by-field — the node JSON has no `extends`/`superclass`/`implements`/`parent` key at all, only the standard location/visibility/docstring fields shared by every class node.
+  This exactly matches the shape of open upstream issue [colbymchenry/codegraph#1328](https://github.com/colbymchenry/codegraph/issues/1328) ("how to know super/sub class from current class node"), filed 2026-07-17, unresolved as of this pass.
+  Fallback: to find a class's parent/superclass, grep the class declaration line (`class X extends Y`) directly rather than querying the graph — the parent-class direction is exactly the one the graph does not carry.
+
 ## `cg-explore.sh`'s officially-claimed strength (single-symbol / compound questions) — re-confirmed genuinely good, with one caveat (field-verified 2026-07-17)
 
 To verify the claimed strength, not just the aggregate-question failure mode below, ran a fresh compound query this pass: `codegraph explore "how does SysUserServiceImpl.selectUserListByDept get called, show the full call chain"`.
 Result was genuinely strong: correctly surfaced the `[dynamic: interface → impl]` edge in both directions, gave real blast-radius counts for both the interface and impl copies of the method (matching the independently-confirmed `ISysDeptService`/`SysDeptServiceImpl` pair below and in `cbm-navigator/references/blindspots.md` — the same interface/impl split reproduces on a second, different service pair), and included verbatim source for all 63 retrieved symbols across 3 files in one call.
 **Caveat**: even on this genuinely-good compound question, one unrelated symbol (`SysSocialController.list`) was pulled into the result set purely because the word "list" loosely matches the query's phrasing — a smaller-scale instance of the same keyword-similarity retrieval mechanism that causes the aggregate-question failures below.
 On a well-scoped single-symbol question the signal-to-noise ratio is high enough to be genuinely useful (this is the tool's real strength), but do not assume every symbol in an `explore` response is relevant just because the response's overall shape looks right — a quick relevance skim of the symbol list costs far less than acting on a wrong one.
+
+## `cg-explore.sh` fails outright on pure-Chinese-language queries (field-verified 2026-07-18) — a caveat to the "officially-claimed strength" section above
+
+- Ran `codegraph explore` with four independent Chinese business terms on RuoYi-Vue-Plus: `"字典标签"`, `"字典标签查询"`, `"用户登录"`, `"部门管理"`.
+  All four returned `No relevant code found for "..."` — zero symbols, zero source, nothing to skim for relevance, unlike the aggregate-question failure mode above which at least returns something wrong-shaped.
+  Confirmed this is specific to `explore`'s own query handling, not a general Chinese-language gap in the index: `codegraph query "字典标签" -j` (the underlying FTS symbol search `cg-find.sh` wraps) on the exact same term returned well-ranked, correct hits — top match `selectDictLabel` (docstring `根据字典类型和字典键值查询字典数据信息...字典标签`, score 16.7), plus `DictService::getDictLabel`, `DictService::getDictValue`, and more genuinely related symbols in the top 10.
+  The FTS5 index tokenizes and matches Chinese text fine; `explore`'s own query-phrase handling on top of it does not.
+  Isolated the mechanism with a mixed-language control: `codegraph explore "SysUser 登录"` (one Latin identifier + one Chinese word) DID work — 109 symbols across multiple files, correct blast-radius output.
+  `explore` appears to require at least one Latin-script/identifier-shaped token to anchor its retrieval on; a query with zero such tokens is silently dropped to an empty result rather than falling back to FTS matching on the CJK text.
+  Practical impact: this hits `explore` specifically — the tool's own docs and this skill's Decision table both position it as the flagship "ask a question in plain language, one call" command, and it is the ONLY MCP tool enabled by default per the official README.
+  A Chinese-only business-language question routed to `cg-explore.sh` gets a false "nothing here" instead of a wrong-shaped-but-visible answer or a graceful fallback — worse than the aggregate-question failure mode above precisely because there is no output at all to sanity-check.
+  Fix shipped: `SKILL.md`'s decision table now splits business-language questions by term language, mirroring `cbm-navigator`'s existing Chinese/English split — Chinese business term → `cg-find.sh` (FTS, confirmed reliable above); pure-English term → `cg-explore.sh` directly, no caveat needed.
 
 ## Same symbol, both tools — direct interface/impl comparison (cross-referenced, not a new repro)
 
@@ -80,6 +120,23 @@ Putting them side by side is itself the finding:
   1. `cg-find.sh -k route` (pattern omitted entirely, the natural way to ask "list all routes") crashed with `line 6: $1: unbound variable` — `set -u` treats a missing positional param as unbound, and the script assumed a pattern was always given. Fixed: `Q="${1:-}"`.
   2. Once that crash was fixed, the *default* limit (20) silently under-returned: with an EMPTY pattern, codegraph's own `-l` behaves like a per-file/group multiplier, not a literal cap — `-l 1` returned 5 rows, `-l 3` returned 15, `-l 5` returned 25 (a consistent ~5x on this repo; the exact ratio is not something to depend on). `cg-find.sh` now defaults `-l` to 500 specifically when the pattern is empty (kept at 20 for normal fuzzy search), so "list all X" actually returns everything by default. With a non-empty pattern `-l` was confirmed to behave as a normal literal cap (`-l 3` on `"system"` → exactly 3 rows) — the quirk is specific to the empty-pattern case.
 
+## Windows: concurrent access hard-fails a full `index` rebuild — broader than upstream issue #1325 (field-verified 2026-07-18)
+
+- Upstream issue [colbymchenry/codegraph#1325](https://github.com/colbymchenry/codegraph/issues/1325) reports `codegraph index` failing with "database file is in use" specifically when an MCP server is still running against the same project.
+  Reproduced a broader version with no MCP server involved at all: launched a plain `codegraph query "Sys" --limit 5 --json` in the background, then immediately ran `codegraph index --quiet` in the foreground on the same project (local NTFS disk, WAL journal mode — none of the network-share/WSL2 caveats already documented upstream apply here).
+  Result: hard failure, not a queue/retry — `[ERR] Failed to index: Could not rebuild the index — the database file is in use (EPERM, Permission denied: ...codegraph.db ...)`.
+  `codegraph status` immediately after confirmed the existing index was untouched (same file/node/edge counts as before the attempt) — the failure aborts cleanly, it does not corrupt the database.
+  Practical implication for this skill (CLI-only, no MCP server, so the upstream issue's specific trigger doesn't apply): a full `codegraph index --force` should not be run from one shell while another `codegraph` command — even a plain read-only `query` — might still be in flight in the same session.
+  The lighter-weight `codegraph sync` used for normal incremental updates (see Quality rules) was not observed to hit this in the same test and is the safer default; reserve `index --force` for cases that actually need a full rebuild, and run it standalone.
+
+## `install.sh` fails immediately under Git Bash / MINGW64 on Windows — root cause confirmed by reading the script (field-verified 2026-07-18)
+
+- Open upstream issue [colbymchenry/codegraph#1294](https://github.com/colbymchenry/codegraph/issues/1294), "codegraph: unsupported OS 'MINGW64_NT-10.0-26200'", filed 2026-07-15, no maintainer response as of this pass.
+  Fetched `install.sh` directly: its OS detection is `os="$(uname -s)"` followed by a `case` statement with exactly two branches, `Darwin` and `Linux` — every other value, including any MINGW/MSYS/CYGWIN string Git Bash reports, falls through to `*) echo "codegraph: unsupported OS '$os'."; exit 1`.
+  `uname -s` on the machine used for this whole verification pass returns `MINGW64_NT-10.0-26200` — the exact string in the open issue, not a coincidence; running `install.sh` from Git Bash on this or any similarly-configured Windows machine will hit that `exit 1` branch every time.
+  Not a blocker for this skill in practice: `README.md`'s own install instructions already use `npm i -g @colbymchenry/codegraph` (confirmed working, v1.4.1, this entire verification pass ran through it), which has no OS-detection step at all.
+  Documented here so nobody "fixes" a working npm-based setup by switching to `install.sh` on a Windows/Git-Bash machine expecting it to be equivalent — it will not run at all there; use PowerShell's `install.ps1` instead if a standalone binary (not npm) is specifically wanted on Windows.
+
 ## Not tested / out of scope for this pass
 
 - Laravel/Django/PHP/Python-specific magic (Facades, Eloquent, URLconf, signals): not re-tested against codegraph in this pass; codegraph's own README claims "limited static analysis for dynamic dispatch and reflection" in general, treat these as unverified-until-spot-checked, same standing rule as cbm-navigator's blindspots.md.
@@ -105,3 +162,9 @@ What follows is supplementary web research (GitHub README/issues, fetched and pa
 - The empty-pattern `-l` multiplier behavior was searched for in the README, the CLI reference site, and issue search, and not found documented anywhere — this doc-search absence is consistent with (but doesn't add confidence beyond) the live finding already in this file; it remains the least durable claim here, re-check it first after any codegraph upgrade.
 - `cbm-navigator`'s existing citations were spot-checked: [DeusData/codebase-memory-mcp#734](https://github.com/DeusData/codebase-memory-mcp/issues/734) — a paraphrased fetch reported its title/content as matching the existing citation (class-level `@RequestMapping` prefix dropped from Route nodes), status open. The main-branch README was likewise reported to show a `--raw` flag — consistent with the existing "main docs ahead of the shipped v0.9.0 CLI" finding, which itself WAS independently confirmed by directly running `--raw` and getting "unknown tool: --raw" (see `_project.sh`), so that underlying claim does not depend on this web check at all.
 - Not re-checked against docs at all: the MyBatis-XML/Vue-dynamic-import/Spring-`getBean` blind spots on both tools. These are "tool does NOT do X" claims — no README documents the absence of a feature — so doc research cannot confirm or refute them; only the live testing already in this file (and cbm-navigator's own blindspots.md) can, and that is what they rest on.
+
+## Methodology note (2026-07-18 pass)
+
+This pass ran the CLI directly against RuoYi-Vue-Plus (v1.4.1, same version as the 2026-07-16 pass, no upgrade in between) with an explicit goal: verify the suitable/limited-use scenarios drafted from web research (official docs, GitHub issues) against live command output, not just read the docs.
+Every finding above dated 2026-07-18 is a direct CLI repro — the GitHub issue numbers cited (#1294, #1325, #1328) are corroborating context found via web research BEFORE the live repro, then independently reproduced live; none of them are asserted on the issue text alone, unlike the weaker "documentation research" citations in the section above.
+The `SpringUtils.getBean(X.class)` and Chinese-`explore` findings were not suggested by any upstream issue or doc — both were discovered by testing this skill's own existing claims (the interface/impl synthesis strength, and the general "ask in plain language" pitch for `explore`) against edge cases the existing blindspots.md hadn't yet covered, not by looking for known bugs.
