@@ -8,7 +8,9 @@ description: >
 
 # code-navigator — accurate & efficient calling protocol
 
-This skill replaces two formerly-separate integrations (`cbm-navigator` for codebase-memory-mcp, `codegraph-navigator` for codegraph) that used to ship independent SKILL.md files with no cross-reference — a real gap, since the two tools' arbitration logic ("which one wins when both are installed") used to live only inside each skill, unreachable from the always-loaded CLAUDE.md layer. This file is the single, merged decision surface. The two CLIs' 16 query scripts (`cbm-*.sh` / `cg-*.sh`) are unchanged, just consolidated under this one skill's `scripts/`.
+This skill replaces two formerly-separate integrations (`cbm-navigator` for codebase-memory-mcp, `codegraph-navigator` for codegraph) that used to ship independent SKILL.md files with no cross-reference — a real gap, since the two tools' arbitration logic ("which one wins when both are installed") used to live only inside each skill, unreachable from the always-loaded CLAUDE.md layer.
+This file is the single, merged decision surface.
+The two CLIs' 16 query scripts (`cbm-*.sh` / `cg-*.sh`) are unchanged, just consolidated under this one skill's `scripts/`.
 
 ## Gate check (before ANY call)
 
@@ -18,10 +20,12 @@ This skill replaces two formerly-separate integrations (`cbm-navigator` for code
    Both present → follow the Decision table's priority order as written; it already encodes the accuracy-first arbitration, no further tool-vs-tool judgment call needed.
    Neither present → this skill does nothing; use native grep/Read for everything, and tell the user which `init`/`index_repository` command would set one up if the question recurs.
 2. **Tiny repo? Skip this skill entirely.**
-   Under ~1,000 lines of code (`cg-arch.sh`'s `nodeCount`, or `cbm-arch.sh`'s node count, in the low hundreds) — native grep/read is just as accurate and faster at this scale. Installed globally ≠ applicable everywhere.
+   Under ~1,000 lines of code (`cg-arch.sh`'s `nodeCount`, or `cbm-arch.sh`'s node count, in the low hundreds) — native grep/read is just as accurate and faster at this scale.
+   Installed globally ≠ applicable everywhere.
 3. **Effort awareness (team-measured fact, applies to both CLIs equally).**
    Retrieval quality is capped by the reasoning/output token budget: at low/medium effort, accuracy is LOWER than at high/xhigh/max — no graph tool lifts this cap.
-   For impact analysis, change decisions, or any structural conclusion the user will act on: delegate to the `deep-analyst` subagent (elevated effort, isolated context, verifies via source reads before returning a conclusion). If that agent is unavailable, recommend the user re-run at high effort (`/effort`) and verify conclusions with native Read on the key code paths.
+   For impact analysis, change decisions, or any structural conclusion the user will act on: delegate to the `deep-analyst` subagent (elevated effort, isolated context, verifies via source reads before returning a conclusion).
+   If that agent is unavailable, recommend the user re-run at high effort (`/effort`) and verify conclusions with native Read on the key code paths.
 4. **Freshness.**
    codebase-memory-mcp: re-indexing manually requires an ABSOLUTE `--repo-path` and an explicit `--name` — a relative path with no `--name` was field-verified to silently create a second, duplicate project instead of updating the existing one.
    codegraph: use `codegraph sync .` for routine incremental updates (seconds); never run a full `codegraph index --force` while any other `codegraph` command (even a read-only `query`) might still be in flight in the same session — field-verified on Windows to hard-fail with `EPERM: database file is in use` (aborts cleanly, no corruption, but no retry either).
@@ -46,7 +50,7 @@ All scripts resolve the repo root via `git rev-parse --show-toplevel` (or cwd) a
 | Which tests cover this change | `cg-affected.sh` — cbm has **no equivalent capability** at all > native grep of test directories | High `totalDependentsTraversed` in the output makes a "no covering tests" conclusion more trustworthy |
 | Exploratory compound question ("how does X reach Y", "why does Z happen"), English or containing ≥1 Latin identifier | `cg-explore.sh` (flagship: one call returns relevant symbols' source + call paths + blast radius, including interface/impl synthesis) — cbm has no one-call equivalent, chain `cbm-find.sh` → `cbm-trace.sh` → `cbm-snippet.sh` manually if only cbm is installed > native | Quickly skim the returned symbol list for relevance — field-verified to occasionally pull in a keyword-coincidence match even on its strong-case questions; scoped to single-area questions only, see the three aggregate rows below for whole-graph shapes |
 | Business term → module, English | `cg-explore.sh` (if the question is compound) or `cbm-find.sh -s` (semantic search, field-verified reliable for English; a top score below 0.3 in its own hint means fall back to `cbm-grep.sh`) or `cg-find.sh` (FTS) | |
-| Business term → module, pure Chinese | `cbm-grep.sh` (literal text match, confirmed to hit Chinese Javadoc) or `cg-find.sh` (FTS, confirmed reliable on Chinese) — either is fine | **NEVER** `cg-explore.sh` (field-verified: returns empty on every pure-Chinese query tested, needs ≥1 Latin-script anchor token) and **NEVER** `cbm-find.sh -s` (Chinese scores near-random regardless of phrasing) |
+| Business term → module, pure Chinese | `cbm-grep.sh` (literal text match, confirmed to hit Chinese Javadoc) or `cg-find.sh` (FTS, confirmed reliable on Chinese) — either is fine | **NEVER** `cg-explore.sh` (field-verified: returns empty on every pure-Chinese query tested, needs ≥1 Latin-script anchor token) and **NEVER** `cbm-find.sh -s` (Chinese scores near-random regardless of phrasing). If the term is mixed Chinese+Latin (≥1 identifier in Latin script alongside the Chinese words), that anchor token makes `cg-explore.sh` viable again — route back to the exploratory-compound row above instead of this one |
 | Architecture overview / hotspots | `cg-arch.sh` or `cbm-arch.sh` — either is fine, use whichever is installed | `cbm-arch.sh`'s `fan_in` numbers should only be trusted as relative ranking (~4% deviation from a real grep count observed) — aggregate stats tolerate name-collision noise far better than a single-target trace does |
 | Dead code | `cbm-cypher.sh` — **the only capability that exists for this shape**, codegraph has none. Java class methods → `dead-code-methods` PLUS the mandatory interface-union protocol above; plain functions → `dead-code` (every Java interface method is reported dead regardless of real usage — a separate Function/Method double-registration issue — cross-check any `*Service`/`I*`-shaped hit with `cbm-trace.sh`) | Both templates self-report truncation past their row cap (field-verified real totals of 348/1159 far exceeding the shown 100) — a truncation warning means "at least N," never the full list; name-only resolution also produces a false-NEGATIVE direction (an unrelated same-named getter can make a truly dead method look used). **NEVER substitute `cg-explore.sh`** — field-verified to keyword-match "find"/"dead" against unrelated method names like `findFirst` and report them dead despite real callers, with the same confident formatting as a correct answer. Neither tool installed → say plainly there is no low-cost native substitute |
 | Hubs / god-classes | `cbm-cypher.sh hubs` — **the only capability**, top-20 by design (not subject to the truncation warning above) | Class/OOP-oriented repos only — returns empty on function-oriented JS/TS/Vue repos, a real modeling gap, not a bug. **NEVER substitute `cg-explore.sh`**, same failure mode as dead code above |
@@ -64,28 +68,45 @@ All scripts resolve the repo root via `git rev-parse --show-toplevel` (or cwd) a
    Unknown name → run the find/query step FIRST, copy the exact name from its output — prefer `qualified_name` over a bare `name` (bare names can silently fuzzy-match an unrelated symbol of the same short name).
    Never invent a name.
 2. First structural question in a session on an unfamiliar area → run the architecture-overview row once to ground yourself, then targeted calls.
-3. If any script returns an empty result, an error, or a `hint` field, follow that hint (broaden the pattern, try the other tool, fall back to native). Do not retry the same call unchanged.
+3. If any script returns an empty result, an error, or a `hint` field, follow that hint (broaden the pattern, try the other tool, fall back to native).
+   Do not retry the same call unchanged.
 
 ## Quality rules (non-negotiable)
 
-- **The graph LOCATES and STRUCTURES; it does not conclude.** Before stating any business-logic or "safe to change" conclusion, read the actual source — `cg-node.sh`/`cg-explore.sh` already embed verbatim source (reading that satisfies the requirement, no separate Read needed for files they already printed); for cbm, use `cbm-snippet.sh` or Read the file path the graph returned.
-- **Java interface → implementation calls are the single most consequential shared gap, handled differently by each tool.** A call through an interface-typed variable/field/param attaches to the interface's method node on BOTH tools' static analysis — this is a property of static analysis on interface-typed calls, not an implementation quirk of either tool. codegraph's higher-level commands (`cg-node.sh`, `cg-explore.sh`, `cg-impact.sh`) synthesize the bridge automatically in one call; `cg-trace.sh`'s bridge is a heuristic (flagged `bridged: true`) and still warrants a cross-check before a final count. cbm's Cypher engine cannot express this bridge query at all — the union protocol in the Decision table's "who calls X" row is MANDATORY, not optional, every single time, including plain single-implementation `IFoo`→`FooImpl` pairs (it is not limited to multi-impl/`@Primary` cases).
-- **`CALLS`-edge name resolution differs sharply between the two tools, and this is the accuracy-deciding factor for get/set/is-shaped names.** cbm resolves by bare method name only (no parameter count/type or receiver-type check) — confirmed 60% false-positive rate on a real symbol from unrelated Lombok-generated getters. codegraph's edges are receiver/type-qualified — confirmed zero cross-pollution on the identical symbol. When both tools are installed and the target name is `get`/`set`/`is`-shaped or a `BaseMapper`-inherited name, this is why codegraph is preferred, not merely token cost.
-- **`SpringUtils.getBean(X.class)` (a deterministic single-target Spring bean lookup) is a standing spot-check, not an edge case.** codegraph's `callers`/`node`/`impact` are confirmed fully blind to it (0/2 recall on two real call sites); this silently propagates into `cg-impact.sh`'s blast radius, producing a false "safe to change" read. Before reporting a final caller/impact count for ANY interface method, grep this pattern for the interface in question as a standing check — this rule applies regardless of which graph tool produced the count being reported.
-- **`SpringUtils.getBean(runtime-computed-name)`** (as opposed to the single-target case above) is genuinely undecidable statically — no amount of querying resolves a value only known at request time. codegraph's interface/impl fan-out lists all implementations as honest candidates ("one of these runs, decided at runtime" — not "all run", not "codegraph knows which"); grep the bean-name construction logic directly if the exact runtime selection matters.
-- **Truncation self-reports must be believed.** Any script that emits a stderr warning naming a real total larger than its shown row count is telling you the shown rows are NOT the complete list — say "at least N," never imply completeness. `hubs` is deliberately exempt (a top-20 ranking has no "true total" to compare against).
+- **The graph LOCATES and STRUCTURES; it does not conclude.**
+  Before stating any business-logic or "safe to change" conclusion, read the actual source — `cg-node.sh`/`cg-explore.sh` already embed verbatim source (reading that satisfies the requirement, no separate Read needed for files they already printed); for cbm, use `cbm-snippet.sh` or Read the file path the graph returned.
+- **Java interface → implementation calls are the single most consequential shared gap, handled differently by each tool.**
+  A call through an interface-typed variable/field/param attaches to the interface's method node on BOTH tools' static analysis — this is a property of static analysis on interface-typed calls, not an implementation quirk of either tool.
+  codegraph's higher-level commands (`cg-node.sh`, `cg-explore.sh`, `cg-impact.sh`) synthesize the bridge automatically in one call; `cg-trace.sh`'s bridge is a heuristic (flagged `bridged: true`) and still warrants a cross-check before a final count.
+  cbm's Cypher engine cannot express this bridge query at all — the union protocol in the Decision table's "who calls X" row is MANDATORY, not optional, every single time, including plain single-implementation `IFoo`→`FooImpl` pairs (it is not limited to multi-impl/`@Primary` cases).
+- **`CALLS`-edge name resolution differs sharply between the two tools, and this is the accuracy-deciding factor for get/set/is-shaped names.**
+  cbm resolves by bare method name only (no parameter count/type or receiver-type check) — confirmed 60% false-positive rate on a real symbol from unrelated Lombok-generated getters.
+  codegraph's edges are receiver/type-qualified — confirmed zero cross-pollution on the identical symbol.
+  When both tools are installed and the target name is `get`/`set`/`is`-shaped or a `BaseMapper`-inherited name, this is why codegraph is preferred, not merely token cost.
+- **`SpringUtils.getBean(X.class)` (a deterministic single-target Spring bean lookup) is a standing spot-check, not an edge case.**
+  codegraph's `callers`/`node`/`impact` are confirmed fully blind to it (0/2 recall on two real call sites); this silently propagates into `cg-impact.sh`'s blast radius, producing a false "safe to change" read.
+  Before reporting a final caller/impact count for ANY interface method, grep this pattern for the interface in question as a standing check — this rule applies regardless of which graph tool produced the count being reported.
+  This is the canonical statement of this rule — other files reference it rather than re-deriving it.
+- **`SpringUtils.getBean(runtime-computed-name)`** (as opposed to the single-target case above) is genuinely undecidable statically — no amount of querying resolves a value only known at request time.
+  codegraph's interface/impl fan-out lists all implementations as honest candidates ("one of these runs, decided at runtime" — not "all run", not "codegraph knows which"); grep the bean-name construction logic directly if the exact runtime selection matters.
+- **Truncation self-reports must be believed.**
+  Any script that emits a stderr warning naming a real total larger than its shown row count is telling you the shown rows are NOT the complete list — say "at least N," never imply completeness.
+  `hubs` is deliberately exempt (a top-20 ranking has no "true total" to compare against).
 - **Route class-level prefixes**: field-verified PRESENT (not dropped) across real controllers on the currently installed codebase-memory-mcp version — don't assume prefix-loss by default; upstream issue #734 describing this failure is real but open/unfixed, spot-check the one controller in question if a path looks truncated rather than assuming it's systemic.
 - Code changed after the last sync/index may be missing — see the Gate check's freshness rule.
 
 ## Fall back to native grep/glob/read (do NOT use any graph tool)
 
-See `references/lsp-and-native-fallbacks.md` for the full, field-verified list of constructs invisible to BOTH tools (MyBatis XML binding, Vue/React dynamic `import()`, computed Spring bean names, `extends` direction, unverified Laravel/Django magic) with grep recipes for each. In addition:
+See `references/lsp-and-native-fallbacks.md` for the full, field-verified list of constructs invisible to BOTH tools (MyBatis XML binding, Vue/React dynamic `import()`, computed Spring bean names, `extends` direction, unverified Laravel/Django magic) with grep recipes for each.
+In addition:
 
 - Comments, docstrings, README semantics; single-file line-level questions; literal text/SQL fragment search where no script applies.
 
 ## LSP collaboration
 
-Claude Code's own LSP tool is a third, independent source — see `references/lsp-and-native-fallbacks.md` for the full protocol. In short: **it is an opportunistic corroboration layer for single-symbol questions, never a chain head**, because it has not been field-verified in this project (this environment currently has no Java or TypeScript LSP server installed — confirmed by direct tool calls, not assumed). Try it once, if relevant, after the graph-tool answer is already in hand; treat any "not available"/"not found" error as silent absence and move on without it.
+Claude Code's own LSP tool is a third, independent source — see `references/lsp-and-native-fallbacks.md` for the full protocol.
+In short: **it is an opportunistic corroboration layer for single-symbol questions, never a chain head**, because it has not been field-verified in this project (this environment currently has no Java or TypeScript LSP server installed — confirmed by direct tool calls, not assumed).
+Try it once, if relevant, after the graph-tool answer is already in hand; treat any "not available"/"not found" error as silent absence and move on without it.
 
 ## Token discipline
 
