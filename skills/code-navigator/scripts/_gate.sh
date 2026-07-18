@@ -6,6 +6,7 @@
 #    codebase-memory-mcp's, so "not indexed" is a hard stop, not a lookup miss).
 # 3. tiny-repo reminder via `codegraph status` nodeCount (skill gate rule).
 set -euo pipefail
+source "$(dirname "$0")/_json_safe.sh"
 
 command -v codegraph >/dev/null || {
   echo '{"error":"codegraph CLI not found","hint":"install: npm i -g @colbymchenry/codegraph — do NOT run \"codegraph install\" unless you intend to write MCP config into this agent"}' >&2
@@ -66,8 +67,11 @@ cg_call() {
   # Validate by actually parsing, not by eyeballing the first character:
   # codegraph's own "not found" text starts with a literal "[i]" prefix
   # (its info-icon, not an ANSI bracket), which would false-positive a
-  # naive '['*/'{'* prefix check into looking like valid JSON.
-  if printf '%s' "$out" | jq empty >/dev/null 2>&1; then
+  # naive '['*/'{'* prefix check into looking like valid JSON. The
+  # non-empty-then-jq-empty predicate itself lives in _json_safe.sh, shared
+  # with cbm_call() (_project.sh) -- see that file for why it must be a
+  # separate non-empty check rather than `jq empty` alone.
+  if _is_valid_json_answer "$out"; then
     printf '%s' "$out"
   else
     msg=$(printf '%s' "$out" | sed 's/\x1b\[[0-9;]*m//g')
