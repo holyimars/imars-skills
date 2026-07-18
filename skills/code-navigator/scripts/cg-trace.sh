@@ -20,7 +20,12 @@
 # and 43 with -l 200 — the missing 23 were real production call sites, not noise.
 # Fixed by defaulting to a much higher cap here, and by flagging when a fetch
 # returns exactly LIMIT results (the one observable signal that more may exist).
+#
+# Regression audit (2026-07-19): $1 was referenced with no guard -- confirmed
+# live to crash with `set -u`'s unbound-variable error and zero stdout on a
+# no-args call, the same defect class fixed this session on the cbm-* side.
 set -euo pipefail; source "$(dirname "$0")/_gate.sh"
+[ "$#" -ge 1 ] || { echo '{"error":"exact-symbol (positional arg) is required","hint":"usage: cg-trace.sh <exact-symbol> [in|out|both] [limit]"}'; exit 2; }
 NAME="$1"; DIRRAW="${2:-both}"; LIMIT="${3:-200}"
 _require_positive_int "$LIMIT" "limit (3rd arg)"
 case "$DIRRAW" in in) DIR=in;; out) DIR=out;; *) DIR=both;; esac

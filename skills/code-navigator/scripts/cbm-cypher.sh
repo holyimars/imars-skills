@@ -97,6 +97,7 @@ run_query() {
     | jq 'if (.error != null) then . + {hint: "Cypher template hit a parser/engine error — this is a template bug, not a data answer; do not retry unchanged, report it."} else . end'
 }
 
+[ "$#" -ge 1 ] || { echo '{"error":"template (positional arg) is required","hint":"usage: cbm-cypher.sh dead-code|dead-code-methods|cross-layer|hubs|routes [arg1] [arg2]"}'; exit 2; }
 LIM=""; CQ=""
 case "$1" in
   dead-code)   Q='MATCH (f:Function) WHERE NOT EXISTS { (f)<-[:CALLS]-() } RETURN f.name, coalesce(f.file_path, f.file) LIMIT 100'

@@ -15,7 +15,14 @@
 # counts test-file callers too, this default will look like an under-recall
 # that isn't really the tool's fault; the hint below flags this whenever the
 # default is in effect and the result is non-empty.
+#
+# Regression audit (2026-07-19): this script referenced $1 directly with no
+# guard, the exact bug already fixed this session in cbm-grep.sh/cbm-find.sh/
+# cbm-snippet.sh but missed here -- confirmed live: calling with no args hit
+# `set -u`'s unbound-variable trap and killed the script with zero stdout,
+# not even a hint, before cbm_call() ever got a chance to run.
 set -euo pipefail; source "$(dirname "$0")/_project.sh"
+[ "$#" -ge 1 ] || { echo '{"error":"exact-function-name (positional arg) is required","hint":"usage: cbm-trace.sh <exact-function-name> [in|out|both] [depth] [include-tests]"}'; exit 2; }
 NAME="$1"; DIRRAW="${2:-both}"; DEPTH="${3:-3}"; INCLUDE_TESTS="${4:-false}"
 _require_positive_int "$DEPTH" "depth (3rd arg)"
 case "$INCLUDE_TESTS" in
