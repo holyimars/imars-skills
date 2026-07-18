@@ -66,39 +66,35 @@
 #    meant to be plain path-fragment filters like `/controller/`; neither
 #    character has a legitimate use there).
 # 6. Every query_graph call in this script: FIXED, newly found during a code
-#    review pass. This script's underlying `cbm_call` (in `_project.sh`) has
-#    no JSON-validation safety net — unlike this skill's codegraph-side
-#    `cg_call()`, a raw Cypher-engine crash (bad syntax, an unsupported
-#    construct, item 2/5 above before they were fixed) propagated straight
-#    to the caller as non-JSON output instead of the structured `{"error",
-#    "hint"}` shape every script in this ecosystem is supposed to guarantee.
-#    Fixed LOCALLY below (`run_query`, mirrors `cg_call()`'s tempfile +
-#    `jq empty` pattern) so this script always returns valid JSON. The
-#    shared `_project.sh::cbm_call` itself is unchanged and the other 6
-#    cbm-* scripts that use it directly still lack this protection —
-#    flagged as a followup, out of scope for this pass to avoid widening the
-#    blast radius of an already-large review.
+#    review pass. This script's underlying `cbm_call` (in `_project.sh`) had
+#    no JSON-validation safety net at the time — unlike this skill's
+#    codegraph-side `cg_call()`, a raw Cypher-engine crash (bad syntax, an
+#    unsupported construct, item 2/5 above before they were fixed)
+#    propagated straight to the caller as non-JSON output instead of the
+#    structured `{"error", "hint"}` shape every script in this ecosystem is
+#    supposed to guarantee. Originally patched LOCALLY here (a `run_query`
+#    wrapper duplicating `cg_call()`'s tempfile + `jq empty` pattern) with
+#    the shared `_project.sh::cbm_call` flagged as an out-of-scope followup.
+# 7. That followup landed (2026-07-21: `cbm_call` itself now guarantees
+#    valid JSON via the shared `_is_valid_json_answer()`, see `_project.sh`/
+#    `_json_safe.sh`) but this script's local `run_query` was never revisited
+#    — it kept re-validating output `cbm_call` already guarantees is valid,
+#    via a bare `jq empty` with NO non-empty guard, i.e. the exact bug
+#    `_json_safe.sh` centralizes a fix for, reintroduced here by not sharing
+#    it. Found during a codebase-memory-mcp/codegraph parity audit
+#    (2026-07-19) and simplified: `run_query` now only builds the request
+#    and defers entirely to `cbm_call` for the JSON guarantee, same as every
+#    other cbm-* script, keeping just the Cypher-specific hint text on error.
 set -euo pipefail; source "$(dirname "$0")/_project.sh"
 
-# Local safety net: guarantee valid JSON out of every query_graph call, even
-# on a raw Cypher-engine crash. See item 6 above — `_project.sh::cbm_call`
-# itself is untouched, this wraps it.
+# `cbm_call` (see _project.sh) already guarantees valid JSON out of every
+# call — no local re-validation needed here anymore (see item 7 above). Only
+# job left for this wrapper: attach a Cypher-specific hint on top of
+# whatever error cbm_call recovered, without reshaping or discarding it.
 run_query() {
-  local q="$1" out err status msg
-  err=$(mktemp)
-  set +e
-  out=$(cbm_call query_graph "$(jq -n --arg p "$PROJECT" --arg q "$q" '{project:$p, query:$q}')" 2>"$err")
-  status=$?
-  set -e
-  if [ "$status" -eq 0 ] && printf '%s' "$out" | jq empty >/dev/null 2>&1; then
-    printf '%s' "$out"
-  else
-    msg="$(cat "$err")$(printf '%s' "$out")"
-    [ -z "$msg" ] && msg="cbm-cypher.sh query exited $status with no output"
-    jq -cn --arg m "$msg" --argjson s "$status" \
-      '{error: $m, exitCode: $s, hint: "Cypher template hit a parser/engine error — this is a template bug, not a data answer; do not retry unchanged, report it."}'
-  fi
-  rm -f "$err"
+  local q="$1"
+  cbm_call query_graph "$(jq -n --arg p "$PROJECT" --arg q "$q" '{project:$p, query:$q}')" \
+    | jq 'if (.error != null) then . + {hint: "Cypher template hit a parser/engine error — this is a template bug, not a data answer; do not retry unchanged, report it."} else . end'
 }
 
 LIM=""; CQ=""

@@ -15,7 +15,9 @@
 set -euo pipefail; source "$(dirname "$0")/_project.sh"
 SEMANTIC=0; LABEL=""; OFFSET=0; LIMIT=200
 while getopts "sl:o:n:" f; do case $f in s) SEMANTIC=1;; l) LABEL=$OPTARG;; o) OFFSET=$OPTARG;; n) LIMIT=$OPTARG;; esac; done
-shift $((OPTIND-1)); Q="$1"
+shift $((OPTIND-1))
+[ "$#" -ge 1 ] || { echo '{"error":"query (positional arg) is required","hint":"usage: cbm-find.sh [-s] [-l LABEL] [-o OFFSET] [-n LIMIT] <regex-or-question>"}'; exit 2; }
+Q="$1"
 _require_positive_int "$LIMIT" "-n/LIMIT"
 _require_positive_int "$OFFSET" "-o/OFFSET"
 if [ "$SEMANTIC" = 1 ]; then
