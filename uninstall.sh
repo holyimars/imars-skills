@@ -9,9 +9,12 @@ set -euo pipefail
 WITH_HOOK=0
 [ "${1:-}" = "--with-hook" ] && WITH_HOOK=1
 
+rm -rf ~/.claude/skills/code-navigator
+rm -f ~/.claude/agents/deep-analyst.md
+# also clean up any pre-0.0.18 layout left over from an older install
 rm -rf ~/.claude/skills/cbm-navigator ~/.claude/skills/codegraph-navigator
 rm -f ~/.claude/agents/cbm-deep-analyst.md ~/.claude/agents/codegraph-deep-analyst.md
-echo "removed: ~/.claude/skills/cbm-navigator + codegraph-navigator (skills), ~/.claude/agents/cbm-deep-analyst.md + codegraph-deep-analyst.md (subagents)"
+echo "removed: ~/.claude/skills/code-navigator (skill), ~/.claude/agents/deep-analyst.md (subagent)"
 echo "note: this only reverses a script install (install.sh); a /plugin install is untouched — use 'claude plugin uninstall imars-skills@<marketplace>' for that."
 
 if [ "$WITH_HOOK" = 1 ]; then

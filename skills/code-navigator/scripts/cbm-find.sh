@@ -31,7 +31,7 @@ if [ "$SEMANTIC" = 1 ]; then
   # ~0.9+ on a true match. This is a model limitation, not fixable here — the
   # low-score hint below is the only mitigation; for Chinese business terms,
   # `cbm-grep.sh` (literal text search over source incl. Chinese Javadoc) is
-  # the correct tool instead, see SKILL.md / references/blindspots.md.
+  # the correct tool instead, see SKILL.md / references/cbm-blindspots.md.
   echo "$OUT" | jq '{count: (.semantic_results|length),
     results: [.semantic_results[] | {name, qualified_name: (.qualified_name // null), label, file: (.file_path // .file // null), score}],
     hint: (if (.semantic_results|length)==0 then "no match — broaden the query, or fall back to native grep"

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shared checks sourced by every codegraph-navigator script:
+# Shared checks sourced by every cg-* script:
 # 1. the codegraph CLI must be installed.
 # 2. the repo root must already have a .codegraph/ index (codegraph resolves
 #    per-directory via -p/cwd — there is no named project registry like
@@ -15,7 +15,7 @@ command -v codegraph >/dev/null || {
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 
 if [ ! -d "$ROOT/.codegraph" ]; then
-  echo "{\"error\":\"repo not indexed for codegraph\",\"hint\":\"run: codegraph init '$ROOT' — or if this repo has a .codebase-memory/ directory instead, use the cbm-navigator skill\"}" >&2
+  echo "{\"error\":\"repo not indexed for codegraph\",\"hint\":\"run: codegraph init '$ROOT' — or if this repo has a .codebase-memory/ directory instead, use this skill's cbm-* scripts instead (same skill, different index)\"}" >&2
   exit 2
 fi
 
@@ -55,7 +55,7 @@ export CG_ROOT="$ROOT"
 # is deliberately never run here). We could not test an actual MCP session
 # to confirm the CLI truly falls outside that guarantee, so treat this as
 # background context, not the basis for the fix -- the fix rests entirely on
-# the byte-verified CLI behavior above. See references/blindspots.md.
+# the byte-verified CLI behavior above. See references/codegraph-blindspots.md.
 cg_call() {
   local out err status msg
   err=$(mktemp)

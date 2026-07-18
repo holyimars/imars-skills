@@ -28,5 +28,5 @@ MATCH=$($TMO codegraph query "$PATTERN" -j -l 5 -p "$ROOT" 2>/dev/null \
   | jq -c '[.[] | {name: .node.name, kind: .node.kind, file: .node.filePath}]' 2>/dev/null) || exit 0
 { [ -z "$MATCH" ] || [ "$MATCH" = "[]" ]; } && exit 0
 jq -n --argjson m "$MATCH" '{hookSpecificOutput: {hookEventName: "PreToolUse",
-  additionalContext: ("Knowledge-graph symbol matches for this pattern: " + ($m|tostring) + " — consider the codegraph-navigator skill for structural follow-ups.")}}'
+  additionalContext: ("Knowledge-graph symbol matches for this pattern: " + ($m|tostring) + " — consider the code-navigator skill for structural follow-ups.")}}'
 exit 0

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Script install path (alternative to /plugin install): copies both skills
-# and subagents to user-global ~/.claude/. Idempotent. Optional: --with-hook
+# Script install path (alternative to /plugin install): copies the unified
+# skill and subagent to user-global ~/.claude/. Idempotent. Optional: --with-hook
 set -euo pipefail
 WITH_HOOK=0
 [ "${1:-}" = "--with-hook" ] && WITH_HOOK=1
@@ -8,18 +8,18 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 
 echo "== imars-skills installer (script mode) =="
 command -v jq >/dev/null || { echo "ERROR: jq is required."; exit 1; }
-command -v codebase-memory-mcp >/dev/null || echo "WARNING: codebase-memory-mcp binary not found — cbm-navigator will not work until it's installed (--skip-config): https://github.com/DeusData/codebase-memory-mcp"
-command -v codegraph >/dev/null || echo "WARNING: codegraph binary not found — codegraph-navigator will not work until it's installed: npm i -g @colbymchenry/codegraph"
+command -v codebase-memory-mcp >/dev/null || echo "WARNING: codebase-memory-mcp binary not found — code-navigator's cbm-side scripts will not work until it's installed (--skip-config): https://github.com/DeusData/codebase-memory-mcp"
+command -v codegraph >/dev/null || echo "WARNING: codegraph binary not found — code-navigator's cg-side scripts will not work until it's installed: npm i -g @colbymchenry/codegraph"
 
 mkdir -p ~/.claude/skills ~/.claude/agents
+# clean up pre-0.0.18 layout (two separate skills/agents, since merged into one)
 rm -rf ~/.claude/skills/cbm-navigator ~/.claude/skills/codegraph-navigator
-cp -r "$HERE/skills/cbm-navigator" ~/.claude/skills/
-cp -r "$HERE/skills/codegraph-navigator" ~/.claude/skills/
-cp "$HERE/agents/cbm-deep-analyst.md" ~/.claude/agents/
-cp "$HERE/agents/codegraph-deep-analyst.md" ~/.claude/agents/
-chmod +x ~/.claude/skills/cbm-navigator/scripts/*.sh
-chmod +x ~/.claude/skills/codegraph-navigator/scripts/*.sh
-echo "installed: ~/.claude/skills/cbm-navigator + codegraph-navigator (skills), ~/.claude/agents/cbm-deep-analyst.md + codegraph-deep-analyst.md (subagents)"
+rm -f ~/.claude/agents/cbm-deep-analyst.md ~/.claude/agents/codegraph-deep-analyst.md
+rm -rf ~/.claude/skills/code-navigator
+cp -r "$HERE/skills/code-navigator" ~/.claude/skills/
+cp "$HERE/agents/deep-analyst.md" ~/.claude/agents/
+chmod +x ~/.claude/skills/code-navigator/scripts/*.sh
+echo "installed: ~/.claude/skills/code-navigator (skill), ~/.claude/agents/deep-analyst.md (subagent)"
 
 if [ "$WITH_HOOK" = 1 ]; then
   mkdir -p ~/.claude/hooks

@@ -25,5 +25,5 @@ MATCH=$(jq -n --arg p "$PROJECT" --arg q "$PATTERN" '{project:$p, name_pattern:$
   | jq -c '[.results[]? | {name, file: (.file_path // .file // null)}]' 2>/dev/null) || exit 0
 { [ -z "$MATCH" ] || [ "$MATCH" = "[]" ]; } && exit 0
 jq -n --argjson m "$MATCH" '{hookSpecificOutput: {hookEventName: "PreToolUse",
-  additionalContext: ("Knowledge-graph symbol matches for this pattern: " + ($m|tostring) + " — consider the cbm-navigator skill for structural follow-ups.")}}'
+  additionalContext: ("Knowledge-graph symbol matches for this pattern: " + ($m|tostring) + " — consider the code-navigator skill for structural follow-ups.")}}'
 exit 0

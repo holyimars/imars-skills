@@ -2,7 +2,7 @@
 # Usage: cg-trace.sh <exact-symbol> [in|out|both]
 #
 # Bridges the Java interface->impl gap on the inbound direction (field-
-# verified, see references/blindspots.md): codegraph's `callers` is a single
+# verified, see references/codegraph-blindspots.md): codegraph's `callers` is a single
 # hop, so querying callers of an *Impl method surfaces only the interface's
 # own declaration line, not the real business callers. When that exact shape
 # is detected — a direct caller whose name equals the queried method's own

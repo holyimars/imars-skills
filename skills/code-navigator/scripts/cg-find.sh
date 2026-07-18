@@ -7,7 +7,7 @@
 # a count that exactly matches `codegraph status -j`'s nodesByKind.route
 # (303/303 on RuoYi-Vue-Plus), same for -k class/interface/component — this
 # is the correct, ACCURATE way to answer "list all routes/classes/
-# interfaces/components", not cg-explore.sh (see references/blindspots.md:
+# interfaces/components", not cg-explore.sh (see references/codegraph-blindspots.md:
 # explore does keyword/semantic retrieval, not a real kind-filtered
 # enumeration, and silently returns wrong-but-plausible results here).
 #

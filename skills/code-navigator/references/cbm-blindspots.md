@@ -63,7 +63,7 @@ Use the native fallback instead; do not report graph emptiness here as "no usage
 ## `cbm-cypher.sh`'s officially-relied-on aggregate templates — 2 of 5 were silently broken, now fixed, plus 3 more issues found in a same-day code-review pass (field-verified 2026-07-17)
 
 The decision table has always pointed whole-graph questions (dead code / hubs / cross-layer / routes) at `cbm-cypher.sh` as this skill's flagship advantage over per-symbol tools — that claim had never actually been executed and checked end-to-end before this pass.
-Turned out 2 of the 5 templates were broken in ways that produced a confidently-formatted, plausible-looking WRONG answer rather than an honest error — the same dangerous failure shape as `codegraph explore` on aggregate questions, see `codegraph-navigator/references/blindspots.md`.
+Turned out 2 of the 5 templates were broken in ways that produced a confidently-formatted, plausible-looking WRONG answer rather than an honest error — the same dangerous failure shape as `codegraph explore` on aggregate questions, see the sibling `codegraph-blindspots.md` in this same skill.
 
 - **`hubs` was completely non-functional.**
   The shipped query was `MATCH (c:Class) RETURN ... ORDER BY c.degree DESC LIMIT 20`.
@@ -103,7 +103,7 @@ Turned out 2 of the 5 templates were broken in ways that produced a confidently-
   2. **`cross-layer`'s `layerA`/`layerB` arguments were spliced into the Cypher string with no escaping.**
      Confirmed live: passing an argument containing a single quote (`/controller/' OR '1'='1`) crashes the parser (`expected token type 85, got 86`) instead of being treated as a literal path-fragment filter — an injection-shaped input-handling defect, not merely a crash-on-weird-input bug, even though a full working injection payload for this specific restricted Cypher grammar was not constructed.
      Fixed by stripping `'` and `\` from both arguments before interpolation; re-tested with the same payload above post-fix — returns a normal empty-result JSON instead of crashing.
-  3. **This script's underlying `cbm_call` (in `scripts/_project.sh`) has no JSON-validation safety net, unlike codegraph-navigator's `cg_call()` (see that skill's `_gate.sh`).**
+  3. **This script's underlying `cbm_call` (in `scripts/_project.sh`) has no JSON-validation safety net, unlike this skill's codegraph-side `cg_call()` (see `scripts/_gate.sh`).**
      Before today's fixes, both the `hubs` degree-ordering bug and the `cross-layer` coalesce bug manifested as a *raw, unhandled crash* reaching the caller — not a graceful `{"error", "hint"}` response — because nothing between the Cypher engine and stdout ever validated the output was JSON.
      This violates the "every script returns valid JSON with a hint, never a raw crash" contract both `SKILL.md`s describe as the mandatory-sequence guarantee.
      Fixed LOCALLY inside `cbm-cypher.sh` (a `run_query` wrapper, same tempfile + `jq empty` pattern as `cg_call()`) so this script now upholds that guarantee regardless of future template bugs.
