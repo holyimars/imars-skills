@@ -27,6 +27,10 @@ Use the native fallback instead; do not report graph emptiness here as "no usage
   `codegraph callers "SysDictDataVo::getDictLabel"` (the Lombok getter) returned exactly its 3 real call sites, all inside `SysDictTypeServiceImpl` where that Vo's getter is genuinely invoked — zero pollution from the business method's own real external callers, and vice versa: `callers "DictService::getDictLabel"` did not include any of the Lombok-getter call sites either (its actual gap is unrelated, see the `SpringUtils.getBean(X.class)` section below).
   Root cause of the difference: codegraph's edges are keyed by qualified/receiver-typed symbol (`Class::method`), not bare method name — the collision class of bug documented for the cbm-side scripts does not reproduce here.
   This is a genuine accuracy advantage worth stating plainly, not just implied by "better than codebase-memory-mcp" language elsewhere in this file.
+- **Caveat (field-verified 2026-07-18 on plus-ui): this receiver-typed guarantee covers method-level `CALLS` edges only — `cg-node.sh`'s FILE-level "used by N files" dependency aggregation is a separate heuristic and is NOT immune to name collision.**
+  `cg-node.sh -f src/components/RoleSelect/index.vue` reported the file as "used by 29 files"; manual grep found ZERO genuine references to the component anywhere in the repo.
+  The false 29 came from other, unrelated CRUD view files sharing generic boilerplate identifiers (`handleQuery`, `queryParams`) that this file-level aggregation associated with `RoleSelect` — a coincidental-name collision at the file-summary level, distinct from the method-level `CALLS`-edge collision this section is about.
+  Fallback: never trust a bare file-level "used by N files" count for a Vue SFC as evidence of real usage either way — grep the kebab-case template tag (e.g. `<role-select`) and check for auto-import registration (`vite/plugins/components.ts` or similar) before concluding used-or-unused.
 
 ## Spring `getBean(X.class)` — deterministic single-target lookup, complete miss (field-verified 2026-07-18, distinct from and worse than the computed-name fan-out below)
 
@@ -38,6 +42,15 @@ Use the native fallback instead; do not report graph emptiness here as "no usage
   This is worse than the computed-name case: that one at least surfaces something (over-inclusive candidates, flagged as uncertain via the `[dynamic: interface → impl]` fan-out), where a `SpringUtils.getBean(X.class)` chain is invisible to the extractor outright, even though the target is fully statically determinable — unlike the computed-name case, which genuinely can't be resolved without running the code.
   Consequence for `cg-impact.sh`/blast-radius analysis is direct, not theoretical: changing `DictService.getDictLabel`'s signature or behavior would silently miss `DictPatternValidator` and `ExcelDictConvert` in the reported blast radius, a false "safe to change" read on a method with 2 more real callers than reported.
   Fallback: grep `SpringUtils.getBean(<Interface>.class)` for the interface in question directly; this pattern is common enough in Spring codebases (validators, converters, static utility classes reaching into the Spring context outside normal DI) to be worth a standing spot-check on any interface method's blast radius before reporting a final caller count.
+
+## Spring AOP self-invocation via `SpringUtils.getAopProxy(this)` — a further complete miss, sibling to the `getBean(X.class)` gap above (field-verified 2026-07-18)
+
+- Distinct call shape from both cases above: `SpringUtils.getAopProxy(this).selectDictTypeByType(dictType)` inside `SysDictTypeServiceImpl` itself — a self-invocation through the Spring AOP proxy, used specifically so the call routes through the proxy and the method's `@Cacheable` annotation actually takes effect (a direct `this.selectDictTypeByType(...)` call would bypass the proxy and skip caching).
+  Found while cross-verifying a `cbm-cypher.sh dead-code-methods` candidate that turned out to be very much alive.
+- `codegraph callers "SysDictTypeServiceImpl::selectDictTypeByType"` (via `cg-trace.sh`) and `codegraph node` (via `cg-node.sh`) were both run directly against this method — neither surfaced the `getAopProxy` call site; both looked structurally identical to a genuinely-dead method.
+- This is NOT fixable by cross-checking with codebase-memory-mcp: its `dead-code-methods` template (the only dead-code capability either tool has) independently missed the same call site — see `cbm-blindspots.md`'s dead-code section for that side.
+  Two tools "agreeing" a method is dead is worthless here, since both share the identical blind spot; only a native grep for `SpringUtils.getAopProxy(this).<method>(` (or a broader textual search for the method name) catches it.
+- Fallback: before trusting any dead-code verdict on a method carrying `@Cacheable`/`@CachePut`/`@CacheEvict` or another AOP-relevant annotation, grep `SpringUtils.getAopProxy(this).<method>(` for that method as a standing check, same discipline as the `SpringUtils.getBean(X.class)` spot-check above.
 
 ## Spring runtime bean-name lookup (`SpringUtils.getBean(computedName)`)
 
