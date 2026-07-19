@@ -2,7 +2,7 @@
 # Usage: cg-trace.sh <exact-symbol> [in|out|both] [limit]
 #
 # Bridges the Java interface->impl gap on the inbound direction (field-
-# verified, see references/codegraph-blindspots.md): codegraph's `callers` is a single
+# verified, see references/tool-divergence.md): codegraph's `callers` is a single
 # hop, so querying callers of an *Impl method surfaces only the interface's
 # own declaration line, not the real business callers. When that exact shape
 # is detected — a direct caller whose name equals the queried method's own
@@ -11,7 +11,7 @@
 # spot-checked (it is a heuristic, not a proof).
 # Outbound (callees) is NOT affected by this gap and is passed through as-is.
 #
-# Limit handling (field-verified 2026-07-18, see references/codegraph-blindspots.md):
+# Limit handling (field-verified 2026-07-18, see research/code-navigator/codegraph-blindspots.md):
 # `codegraph callers`/`callees` themselves default to -l 20 with NO total/hasMore
 # field in their JSON — a symbol with >20 real callers silently returns only 20,
 # indistinguishable from "there are exactly 20". This script used to call both

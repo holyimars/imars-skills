@@ -56,7 +56,7 @@ if [ "$SEMANTIC" = 1 ]; then
   # ~0.9+ on a true match. This is a model limitation, not fixable here — the
   # low-score hint below is the only mitigation; for Chinese business terms,
   # `cbm-grep.sh` (literal text search over source incl. Chinese Javadoc) is
-  # the correct tool instead, see SKILL.md / references/cbm-blindspots.md.
+  # the correct tool instead, see SKILL.md / references/tool-divergence.md.
   # The score-too-low and hit-the-limit conditions are NOT mutually
   # exclusive (a truncated result can also score badly) — collect whichever
   # apply via join_warnings() (_hint.jq, shared with cg-trace.sh) instead of

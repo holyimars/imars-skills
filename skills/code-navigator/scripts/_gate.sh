@@ -56,7 +56,8 @@ export CG_ROOT="$ROOT"
 # is deliberately never run here). We could not test an actual MCP session
 # to confirm the CLI truly falls outside that guarantee, so treat this as
 # background context, not the basis for the fix -- the fix rests entirely on
-# the byte-verified CLI behavior above. See references/codegraph-blindspots.md.
+# the byte-verified CLI behavior above. See references/tool-divergence.md
+# (concise) or research/code-navigator/codegraph-blindspots.md (full repro).
 cg_call() {
   local out err status msg
   err=$(mktemp)

@@ -23,7 +23,7 @@ source "$(dirname "$0")/_json_safe.sh"
 # script always returns valid JSON with a hint" guarantee this skill's own
 # scripts are supposed to uphold (the exact defect class this shared helper
 # was flagged, but not yet fixed, for in an earlier pass -- see
-# cbm-blindspots.md's `cbm-cypher.sh` section, item 6). Recovers the real
+# research/code-navigator/cbm-blindspots.md's `cbm-cypher.sh` section, item 6). Recovers the real
 # error/hint from stderr when it's there; only falls back to a generic
 # wrapper if stderr isn't parseable JSON either. Mirrors cg_call()
 # (scripts/_gate.sh) and cbm-cypher.sh's local run_query(), now as the

@@ -2,7 +2,7 @@
 # Usage: cbm-cypher.sh dead-code|dead-code-methods|cross-layer|hubs|routes  [arg1] [arg2]
 #
 # Field-verified 2026-07-17 on RuoYi-Vue-Plus. This template set had 6 real
-# issues found this pass (see references/cbm-blindspots.md for full repro) — 5
+# issues found this pass (see research/code-navigator/cbm-blindspots.md for full repro) — 5
 # fixed, 1 documented because it can't be fixed at the query level:
 #
 # 1. `hubs`: FIXED. The original query ordered by `c.degree`, a property
@@ -102,12 +102,12 @@ LIM=""; CQ=""
 case "$1" in
   dead-code)   Q='MATCH (f:Function) WHERE NOT EXISTS { (f)<-[:CALLS]-() } RETURN f.name, coalesce(f.file_path, f.file) LIMIT 100'
                CQ='MATCH (f:Function) WHERE NOT EXISTS { (f)<-[:CALLS]-() } RETURN count(f) AS c'; LIM=100
-               echo '{"warning":"Java: EVERY interface method is reported as dead here regardless of real usage — interface declarations are double-registered as Function+Method nodes and only the Method twin ever receives CALLS edges (field-verified, see references/cbm-blindspots.md). Cross-check any *Service/I*-interface hit with cbm-trace.sh before concluding dead code; genuinely reliable for non-interface functions."}' >&2
+               echo '{"warning":"Java: EVERY interface method is reported as dead here regardless of real usage — interface declarations are double-registered as Function+Method nodes and only the Method twin ever receives CALLS edges (see references/tool-divergence.md). Cross-check any *Service/I*-interface hit with cbm-trace.sh before concluding dead code; genuinely reliable for non-interface functions."}' >&2
                ;;
   dead-code-methods)
                Q='MATCH (m:Method) WHERE NOT EXISTS { (m)<-[:CALLS]-() } RETURN m.name, coalesce(m.file_path, m.file), m.parent_class LIMIT 100'
                CQ='MATCH (m:Method) WHERE NOT EXISTS { (m)<-[:CALLS]-() } RETURN count(m) AS c'; LIM=100
-               echo '{"warning":"Java: results for classes implementing an interface are UNRELIABLE — calls through the interface never attach to the impl method (field-verified, see references/cbm-blindspots.md). For any *Impl-suffixed class in this list, re-run cbm-trace.sh on the matching interface method before concluding dead code."}' >&2
+               echo '{"warning":"Java: results for classes implementing an interface are UNRELIABLE — calls through the interface never attach to the impl method (see references/tool-divergence.md). For any *Impl-suffixed class in this list, re-run cbm-trace.sh on the matching interface method before concluding dead code."}' >&2
                ;;
   cross-layer) A="${2:-/controller/}"; B="${3:-/mapper/}"
                A="${A//\'/}"; A="${A//\\/}"; B="${B//\'/}"; B="${B//\\/}"
