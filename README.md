@@ -14,9 +14,9 @@
 内含五个组件:
 | 组件 | 位置 | 作用 |
 |---|---|---|
-| `code-navigator` skill | `skills/code-navigator/` | 统一触发协议 + 16 个查询脚本(`cbm-*.sh` 8 个 + `cg-*.sh` 8 个)+ 两份盲区参考 + LSP 协作协议 |
+| `code-navigator` skill | `skills/code-navigator/` | 统一触发协议 + 14 个查询脚本(`cbm-*.sh` 7 个 + `cg-*.sh` 7 个)+ 两份盲区参考 + LSP 协作协议 |
 | `deep-analyst` subagent | `agents/` | 高风险问题(影响面/改造决策)以 `effort: high` 在独立上下文运行并回传已验证结论 |
-| PreToolUse hook(可选,两个脚本) | `optional/hooks/` | Grep/Glob 时自动注入图谱符号匹配作为 additionalContext,非阻断;`cbm-augment.sh`/`codegraph-augment.sh` 各自按对应索引产物(`.codebase-memory/`/`.codegraph/`)是否存在决定是否生效,可以同时接进 settings.json,只建了其中一种索引的仓库另一个 hook 会静默跳过——两个都建了索引的仓库,每次 Grep/Glob 会收到最多两段提示,详见下方"PreToolUse hook 的双索引代价" |
+| PreToolUse hook(可选,单脚本) | `optional/hooks/` | `code-navigator-augment.sh` 一个脚本统一处理:原生 `Grep`/`Glob` 调用,以及 `Bash` 里直接跑的 `grep`/`git grep`/`rg`/`ag`,自动注入图谱符号匹配作为 additionalContext,非阻断;按各自索引产物(`.codebase-memory/`/`.codegraph/`)是否存在独立判否,只建了其中一种索引的仓库照常工作;两边都命中同一符号时合并成一条并标注 `src:both`,详见下方"PreToolUse hook 的合并策略" |
 | CLAUDE.md 片段(可选) | `optional/` | 一份统一片段,强化触发,同时兼容只建了一种索引的仓库 |
 | settings 模板 | `optional/` | hook 接线,project/user 两个作用域各一份 |
 
@@ -87,11 +87,23 @@ git clone https://github.com/holyimars/imars-skills && cd imars-skills
 2. **档位认知**:思考/输出 token 预算过小会限制检索质量,low/medium 档准确度低于 high/xhigh/max,图谱不能抬升该上限;**将被采取行动的结论**(影响面、改造决策)会被委派给 `deep-analyst` subagent(effort 覆盖 + 独立上下文 + 源码复核),该 agent 不可用时回退为建议升档 + 原生复核;
 3. **只有实测过的能力才能当决策表的链头**:LSP 即便 TypeScript 侧已实测(见下方"LSP 协作"),按设计仍然永远只作为单符号问题的额外佐证,不参与链序判断。
 
-## PreToolUse hook 的双索引代价
+## PreToolUse hook 的合并策略
 
-两个 hook 脚本(`cbm-augment.sh`/`codegraph-augment.sh`)保持独立进程、不合并逻辑——hook 之间互相看不到对方的输出,任何跨 hook 去重都需要引入共享状态,对一个非阻断、best-effort、单次 ≤5 条的提示注入是过度工程;而且两者的匹配机制不同(cbm 是 `search_graph` 的 name_pattern 精确/正则匹配,codegraph 是内置 FTS 模糊匹配),召回互补,强行去重反而会丢信息。
+0.0.18 曾经明确决定不合并这两个 hook,理由是"跨 hook 去重需要两个独立进程之间共享状态,对一个非阻断、best-effort 的提示注入是过度工程"。0.0.27 把两个脚本合并成一个 `code-navigator-augment.sh` 之后,这条理由本身不再成立——合并成一个进程,去重就只是一段普通的 jq 逻辑,不需要任何共享状态。同时这一版也把 hook 的触发范围从原生 `Grep`/`Glob` 扩大到了 `Bash` 里直接跑的 `grep`/`git grep`/`rg`/`ag`,触发频率显著上升,这让"双份注入 + 双份子进程"这个早先可以容忍的代价变得更值得现在解决。
 
-代价如实说明:双索引仓库上,每次 Grep/Glob 都会收到最多两段(各 ≤5 条)符号提示注入进 additionalContext,现在两段的结尾建议已经统一指向同一个 `code-navigator` skill,冗余只剩符号列表本身的重复,不再是矛盾指令。对 token 消耗敏感、又两个索引都建了的用户,可以只在 settings.json 里接 `codegraph-augment.sh` 一个——双索引场景下它的匹配结果带 `kind` 字段且没有 cbm 那种 name-only 碰撞噪声。
+合并后的规则:两边结果按 `name`+`file` 去重,同时命中同一个符号的合并成一条并标 `src:"both"`(保留 codegraph 一侧的 `kind` 字段),只有一边命中的分别标 `src:"cg"`/`src:"cbm"`。`both` 标签排最前面——两种完全不同的匹配机制(cbm 精确/正则 name_pattern,codegraph 模糊 FTS)独立地同时命中同一个符号,是任何单一工具都给不出的更强信号,这也是合并这件事本身带来的新价值,不只是"少发一次"。合并后的展示上限是 8 条(每个工具查询时的单次上限仍是 5,用于各自的 `-l`/`limit` 参数),比旧版两个脚本最坏情况叠加到 10 条要少,又比单独一个工具的 5 条留出更多互补召回的空间。
+
+**只装了一种索引的仓库继续正常工作**——脚本内部两个分支各自独立判否(codegraph 分支查 `.codegraph/` 目录是否存在,cbm 分支查 `codebase-memory-mcp` 命令是否存在),没有变成"两个都要装"。
+
+**迁移提示**:如果你在旧版本手动把 `cbm-augment.sh`/`codegraph-augment.sh` 两条 hook 配置写进了自己的 `settings.json`,需要手动替换成新的一条(指向 `code-navigator-augment.sh`,`matcher` 改成 `"^(Grep|Glob|Bash)$"`,`timeout` 改成 `5`)——`install.sh --with-hook` 只负责清理/安装脚本文件本身,不会去改你已经手改过的 `settings.json`。
+
+**已修复:极端环境下的后台进程风险**:codegraph 分支为了和 cbm 的两步查询并发而用 `&` 放到后台跑(见上面的超时预算说明)。旧版两个独立脚本时,唯一一次 CLI 调用是前台阻塞执行,外层 hook 超时杀父进程基本等于连带杀掉它;合并后改成后台执行,如果所在环境同时缺 `timeout` 和 `gtimeout`,这个已经脱离前台等待链的后台查询就没有任何内置时间上限,理论上可能在外层超时杀掉父进程之后继续跑一会儿,变成孤儿进程——这是合并这次新引入的边界情况,不是延续旧脚本就有的风险。已经修复:codegraph 分支现在额外要求 `$TMO` 非空(即真的探测到了 `timeout` 或 `gtimeout`)才会执行,两者都探测不到时直接跳过这个分支,而不是无时间上限地跑;这和"没装 codegraph 命令"/"没有 `.codegraph/` 目录"时这个分支本来就会跳过是同一套判否逻辑,不算新增的覆盖率损失。
+
+**已知边界:Bash 命令识别的提取盲区**——这几条对应"控制流程"里"Bash 命令识别 + pattern 提取"那一步,如实记录不强行覆盖:
+- 复合/管道命令只识别第一个在合法命令边界上匹配到的命令名,不追踪整条命令链(比如 `fd . | xargs grep foo` 完全不会被识别,因为 `xargs` 不是边界字符);
+- 对"管道左边命令输出"做 grep(如 `git log --oneline | grep fix`、`ps aux | grep java`)在语法上和"对代码内容"做 grep 无法区分,依然会触发并注入提示——非阻断软性建议,最坏结果只是一句无关但无害的提示;
+- `find`(语义上更接近 Glob)、`ack` 等更少见的工具本轮不做;
+- 质量兜底过滤(候选长度 `< 3` 或不含字母则视为空)只挡得住短小/纯数字的误捕获(如 `rg -t ts foo` 误捕获成 `ts`),挡不住 `-t typescript` 这类参数值本身较长的写法——这种情况下拿到的是错误的符号名,代价和"查不到就是干净空结果"相当。
 
 ## 维护指引
 

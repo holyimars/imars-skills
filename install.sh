@@ -23,15 +23,18 @@ echo "installed: ~/.claude/skills/code-navigator (skill), ~/.claude/agents/deep-
 
 if [ "$WITH_HOOK" = 1 ]; then
   mkdir -p ~/.claude/hooks
-  cp "$HERE/optional/hooks/cbm-augment.sh" ~/.claude/hooks/
-  cp "$HERE/optional/hooks/codegraph-augment.sh" ~/.claude/hooks/
-  chmod +x ~/.claude/hooks/cbm-augment.sh ~/.claude/hooks/codegraph-augment.sh
-  echo "hook scripts installed: ~/.claude/hooks/cbm-augment.sh + codegraph-augment.sh"
-  echo "NOTE: each hook silently no-ops when its own index product (.codebase-memory/ or .codegraph/) is absent from a repo,"
-  echo "      so both can be wired together even in a repo indexed by only one of the two tools."
+  # clean up pre-0.0.27 layout (two separate hook scripts, since merged into one)
+  rm -f ~/.claude/hooks/cbm-augment.sh ~/.claude/hooks/codegraph-augment.sh
+  cp "$HERE/optional/hooks/code-navigator-augment.sh" ~/.claude/hooks/
+  chmod +x ~/.claude/hooks/code-navigator-augment.sh
+  echo "hook script installed: ~/.claude/hooks/code-navigator-augment.sh"
+  echo "NOTE: queries whichever index product(s) are present (.codebase-memory/ and/or .codegraph/), silently"
+  echo "      no-ops on either side that's absent, and merges both tools' results into one injection when both hit."
   echo "      user-level -> merge optional/settings-hook-user.json into ~/.claude/settings.json (backup first);"
-  echo "      project-level -> copy both scripts to <repo>/.claude/hooks/ and merge optional/settings-hook-project.json"
+  echo "      project-level -> copy the script to <repo>/.claude/hooks/ and merge optional/settings-hook-project.json"
   echo "      (project-level MUST use \$CLAUDE_PROJECT_DIR in the command path)."
+  echo "      If you previously wired the two old hook entries by hand in settings.json, replace them with the"
+  echo "      single new entry above — this installer only manages the script files, not your settings.json."
 fi
 
 echo "Done. Restart Claude Code, then run the verification checklist in README.md."

@@ -18,9 +18,11 @@ echo "removed: ~/.claude/skills/code-navigator (skill), ~/.claude/agents/deep-an
 echo "note: this only reverses a script install (install.sh); a /plugin install is untouched — use 'claude plugin uninstall imars-skills@<marketplace>' for that."
 
 if [ "$WITH_HOOK" = 1 ]; then
+  # also clean up any pre-0.0.27 layout (two separate hook scripts) left over from an older install
   rm -f ~/.claude/hooks/cbm-augment.sh ~/.claude/hooks/codegraph-augment.sh
-  echo "removed: ~/.claude/hooks/cbm-augment.sh + codegraph-augment.sh"
-  echo "if you added the PreToolUse entries to ~/.claude/settings.json, remove those entries manually."
+  rm -f ~/.claude/hooks/code-navigator-augment.sh
+  echo "removed: ~/.claude/hooks/code-navigator-augment.sh"
+  echo "if you added the PreToolUse entry to ~/.claude/settings.json, remove it manually."
 else
-  echo "hook scripts left in place (~/.claude/hooks/cbm-augment.sh + codegraph-augment.sh) since they aren't tied to the skill/agent install method — pass --with-hook to remove them too."
+  echo "hook script left in place (~/.claude/hooks/code-navigator-augment.sh) since it isn't tied to the skill/agent install method — pass --with-hook to remove it too."
 fi
